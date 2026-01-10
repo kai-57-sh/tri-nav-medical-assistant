@@ -1,0 +1,488 @@
+# LangGraph State Schema: TriNav Medical Triage Workflow
+
+**Feature**: Medical Triage and Hospital Navigation Assistant (TriNav)
+**Workflow**: 18-node StateGraph for medical triage
+**Date**: 2025-01-09
+
+---
+
+## Overview
+
+This document defines the complete state schema for the 18-node LangGraph workflow. State transitions follow a directed acyclic graph (DAG) with conditional routing based on triage urgency, image quality, and clarification needs.
+
+---
+
+## State Definition (TypedDict)
+
+```python
+from typing_extensions import TypedDict, Annotated, Required, Literal
+from typing import Optional, List, Dict, Any
+from operator import add
+from langgraph.graph.message import add_messages
+
+class TriageState(TypedDict):
+    """Complete state schema for 18-node LangGraph workflow."""
+
+    # ========================================
+    # IMMUTABLE INPUT (Per Request)
+    # ========================================
+    session_id: Required[str]  # UUID for Redis key
+    input_type: Literal["text", "image"]  # User input modality
+
+    # User-provided data (NOT stored in Redis)
+    text: Optional[str]  # Text description (max 2000 chars per FR-001)
+    image_base64: Optional[str]  # Base64 image (NOT in Redis per CT-007)
+    lat: Optional[float]  # Latitude for navigation
+    lng: Optional[float]  # Longitude for navigation
+
+    # ========================================
+    # CONVERSATION HISTORY (with reducer)
+    # ========================================
+    messages: Annotated[List[Dict], add_messages]  # Conversation history
+
+    # ========================================
+    # SESSION STATE (Persistent in Redis)
+    # ========================================
+    turn_count: int  # Current clarification round (1-2 per CT-009)
+    symptom_schema: Optional[Dict[str, Any]]  # Extracted symptoms
+    clarify_questions: List[str]  # Questions asked in previous turns
+    triage_level: Optional[Literal["EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"]]
+    case_domain: Optional[str]  # Medical specialty
+
+    # Cache references (to avoid re-fetching)
+    evidence_cache_key: Optional[str]
+    navigation_cache_key: Optional[str]
+
+    # ========================================
+    # WORKFLOW FLAGS (Node-to-node communication)
+    # ========================================
+    image_is_clear: Optional[bool]  # Set by ImageQualityGate
+    need_clarify: bool  # Set by ClarifyDecision
+    evidence_needed: bool  # Set by EvidenceRouter
+
+    # ========================================
+    # INTERMEDIATE DATA (Not stored)
+    # ========================================
+    # Visual extraction output
+    visual_findings: Optional[Dict[str, Any]]  # From ImageProcessor
+
+    # Red flag detection output
+    red_flags_hit: List[str]  # IDs of triggered rules
+    rule_triage_level: Optional[str]  # From RedFlagDetector
+
+    # LLM triage output
+    llm_triage_level: Optional[str]  # From TriageClassifier
+
+    # Evidence retrieval
+    ncbi_query: Optional[str]  # Built by NCBIQueryBuilder
+    candidate_evidence: Optional[List[Dict]]  # From NCBIRetrieverTool
+    evidence_selected: Optional[List[Dict]]  # From EvidenceRanker
+
+    # Navigation
+    hospitals: Optional[List[Dict]]  # From Navigator
+    route_plan: Optional[Dict]  # From Navigator
+
+    # Weather
+    weather_alert: Optional[Dict]  # From WeatherFetcher
+
+    # ========================================
+    # FINAL OUTPUT
+    # ========================================
+    status: Literal["need_more_info", "final", "error"]
+    error_message: Optional[str]  # Details if status=error
+    final_response: Optional[str]  # Composed response (if status=final)
+```
+
+---
+
+## Node Definitions (18 Nodes)
+
+### Input Phase (Nodes 1-3)
+
+1. **InputValidator** (Node 1)
+   - **Input**: `session_id`, `input_type`, `text`, `image_base64`, `lat`, `lng`
+   - **Output**: Validates input format, assigns UUID if needed
+   - **State Updates**: None (read-only validation)
+
+2. **SessionLoad** (Node 2)
+   - **Input**: `session_id`
+   - **Output**: Loads previous session state from Redis
+   - **State Updates**: `turn_count`, `symptom_schema`, `clarify_questions`, `triage_level`, `case_domain`
+
+3. **ImageQualityGate** (Node 3)
+   - **Input**: `image_base64`
+   - **Output**: Checks image quality (clarity, lighting, focus)
+   - **State Updates**: `image_is_clear`, `visual_findings` (if clear)
+   - **Conditional**: Routes to `ClarifyAsk` if unclear, `VisionExtract` if clear
+
+### Clinical Extraction Phase (Nodes 4-9)
+
+4. **VisionExtract** (Node 4)
+   - **Input**: `image_base64`
+   - **Output**: Extracts visual features (type, summary, features, confidence)
+   - **State Updates**: `visual_findings` (merged into symptom_schema)
+
+5. **ClinicalExtractor** (Node 5)
+   - **Input**: `text`, `visual_findings`
+   - **Output**: Extracts structured symptom schema
+   - **State Updates**: `symptom_schema`, `extraction_confidence`
+
+6. **RedFlagDetector** (Node 6)
+   - **Input**: `symptom_schema`
+   - **Output**: Rule-based emergency detection
+   - **State Updates**: `red_flags_hit`, `rule_triage_level`, `recommended_departments`
+
+7. **TriageClassifier** (Node 7)
+   - **Input**: `symptom_schema`
+   - **Output**: LLM-based triage level assignment
+   - **State Updates**: `llm_triage_level`
+
+8. **TriageMerger** (Node 8)
+   - **Input**: `rule_triage_level`, `llm_triage_level`
+   - **Output**: Merges rule + LLM triage (RULE WINS per constitution)
+   - **State Updates**: `triage_level` (final), `triage_reason`, `triage_source`
+
+9. **ClarificationGenerator** (Node 9)
+   - **Input**: `symptom_schema`, `turn_count`, `triage_level`
+   - **Output**: Generates clarification questions if needed
+   - **State Updates**: `clarify_questions`, `need_clarify`
+   - **Conditional**: Routes to `ClarifyAsk` if `need_clarify=true` and `turn_count < 2`
+
+### Session Persistence (Node 10)
+
+10. **SessionSave** (Node 10)
+   - **Input**: All session state
+   - **Output**: Saves to Redis with 60-minute TTL
+   - **State Updates**: None (persistence side-effect)
+
+### Evidence Retrieval Phase (Nodes 11-13)
+
+11. **EvidenceRouter** (Node 11)
+   - **Input**: `triage_level`, `case_domain`
+   - **Output**: Decides whether NCBI retrieval needed
+   - **State Updates**: `evidence_needed`
+   - **Conditional**: Routes to `NavigationPlanner` if `triage_level=EMERGENCY` (skip evidence), `NCBIQueryBuilder` if needed
+
+12. **NCBIQueryBuilder** (Node 12)
+   - **Input**: `symptom_schema`, `case_domain`
+   - **Output**: Builds PubMed/NCBI search query
+   - **State Updates**: `ncbi_query`
+
+13. **NCBIRetrieverTool** (Node 13)
+   - **Input**: `ncbi_query`
+   - **Output**: Fetches and ranks evidence from PubMed
+   - **State Updates**: `candidate_evidence`, `evidence_selected`
+
+### Domain Classification (Node 14)
+
+14. **DomainClassifier** (Node 14)
+   - **Input**: `symptom_schema`
+   - **Output**: Classifies medical specialty domain
+   - **State Updates**: `case_domain`
+
+### Navigation Phase (Nodes 15-16)
+
+15. **Navigator** (Node 15)
+   - **Input**: `lat`, `lng`, `triage_level`
+   - **Output**: Hospital search + route planning (Amap API)
+   - **State Updates**: `hospitals` (exactly 3), `route_plan`
+
+16. **WeatherFetcher** (Node 16)
+   - **Input**: `lat`, `lng`, `route_plan`
+   - **Output**: Weather alerts for travel
+   - **State Updates**: `weather_alert`
+
+### Verification & Output (Nodes 17-18)
+
+17. **ReasoningVerifier** (Node 17)
+   - **Input**: Draft response (all gathered data)
+   - **Output**: Safety verification (dual check: rules + LLM)
+   - **State Updates**: `final_response` (sanitized), `status`
+
+18. **FinalStatusRouter** (Node 18)
+   - **Input**: `status`, `error_message`
+   - **Output**: Routes to END based on status
+   - **State Updates**: None (router only)
+
+### Special Node
+
+19. **ClarifyAsk** (Node 19 - special case)
+   - **Input**: `clarify_questions`
+   - **Output**: Returns clarification questions to user
+   - **State Updates**: `status` = "need_more_info"
+   - **Terminal**: Routes to END (wait for user follow-up)
+
+---
+
+## State Transitions
+
+### Linear Flow (Main Path)
+
+```
+START
+  ↓
+InputValidator (1)
+  ↓
+SessionLoad (2)
+  ↓
+┌─────────────────────┐
+│ ImageQualityGate (3)│ ← Conditional on input_type
+└─────────────────────┘
+  ↓ (if image clear)
+VisionExtract (4)
+  ↓
+ClinicalExtractor (5)
+  ↓
+RedFlagDetector (6)
+  ↓
+TriageClassifier (7)
+  ↓
+TriageMerger (8)
+  ↓
+ClarificationGenerator (9)
+  ↓
+SessionSave (10)
+  ↓
+┌─────────────────────┐
+│ EvidenceRouter (11)  │ ← Conditional: EMERGENCY skips evidence
+└─────────────────────┘
+  ↓ (if not EMERGENCY)
+NCBIQueryBuilder (12)
+  ↓
+NCBIRetrieverTool (13)
+  ↓
+DomainClassifier (14)
+  ↓
+Navigator (15)
+  ↓
+WeatherFetcher (16)
+  ↓
+ReasoningVerifier (17)
+  ↓
+FinalStatusRouter (18)
+  ↓
+END
+```
+
+### Conditional Routing Logic
+
+#### Route 1: Image Quality (Node 3)
+```python
+def route_by_image_quality(state: TriageState) -> str:
+    if state.get("image_is_clear"):
+        return "vision_extract"  # Continue to Node 4
+    else:
+        return "clarify_ask"  # Skip to clarify (Node 19)
+```
+
+#### Route 2: Clarification (Node 9)
+```python
+def route_by_clarification_need(state: TriageState) -> str:
+    if state.get("need_clarify") and state.get("turn_count", 0) < 2:
+        return "clarify_ask"  # Ask questions (Node 19)
+    else:
+        return "session_save"  # Continue to Node 10
+```
+
+#### Route 3: Emergency Bypass (Node 11)
+```python
+def route_by_urgency(state: TriageState) -> str:
+    if state.get("triage_level") == "EMERGENCY":
+        return "navigation"  # Skip evidence (Node 15)
+    elif state.get("evidence_needed"):
+        return "evidence"  # Retrieve evidence (Node 12)
+    else:
+        return "navigation"  # Skip evidence (Node 15)
+```
+
+#### Route 4: Final Status (Node 18)
+```python
+def route_by_status(state: TriageState) -> str:
+    if state.get("status") == "error":
+        return END
+    elif state.get("status") == "need_more_info":
+        return END
+    else:  # status == "final"
+        return END
+```
+
+---
+
+## State Persistence Strategy
+
+### Stored in Redis (60-minute TTL)
+
+```python
+minimal_state = {
+    "session_id": state["session_id"],
+    "turn_count": state["turn_count"],
+    "symptom_schema": state["symptom_schema"],
+    "clarify_questions": state["clarify_questions"],
+    "triage_level": state["triage_level"],
+    "case_domain": state["case_domain"],
+    "evidence_cache_key": state.get("evidence_cache_key"),
+    "navigation_cache_key": state.get("navigation_cache_key")
+}
+```
+
+### NOT Stored (Privacy Constraints)
+
+- `text` - Raw user input (CT-008)
+- `image_base64` - Raw image data (CT-007)
+- `visual_findings` - Intermediate data (derived from symptom_schema)
+- `red_flags_hit` - Audit trail only (logged separately per FR-066)
+- `candidate_evidence` - Large object (use cache_key instead)
+- `hospitals` - Large object (use cache_key instead)
+- `messages` - Full conversation history (not needed per CT-008)
+
+---
+
+## Error State Transitions
+
+### Node-Level Errors
+
+When any node fails:
+1. **Log error** with correlation_id (FR-062)
+2. **Set** `error_message` with details
+3. **Set** `status` based on triage_level:
+   - If `triage_level == "EMERGENCY"`: `status = "error"` (fail-fast for safety)
+   - Else: `status = "final"` (degrade gracefully per FR-046, FR-048)
+4. **Continue** to next node (no workflow interruption)
+
+### External Service Failures
+
+- **Amap fails**: Set `hospitals = []`, continue to ReasoningVerifier
+- **Weather fails**: Set `weather_alert = None`, continue
+- **NCBI fails**: Set `evidence_selected = []`, continue
+- **Redis fails**: Treat as new session (turn_count = 1)
+
+---
+
+## Validation Rules
+
+### Input Validation (Node 1)
+
+- `text`: Max 2000 characters (FR-001)
+- `image_base64`: Max 4MB after compression (FR-002)
+- `lat`: -90 to 90 (valid latitude)
+- `lng`: -180 to 180 (valid longitude)
+
+### State Validation
+
+- `turn_count`: 1 to 2 (CT-009)
+- `triage_level`: EMERGENCY | URGENT | ROUTINE | SELF_CARE
+- `case_domain`: dermatology | trauma | respiratory | gastro | neuro | urology | other
+- `status`: need_more_info | final | error
+
+---
+
+## Graph Compilation
+
+```python
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.redis import AsyncRedisSaver
+
+# Create builder
+builder = StateGraph(TriageState)
+
+# Add all 18 nodes
+for node_name, node_func in ALL_NODES:
+    builder.add_node(node_name, node_func)
+
+# Add edges
+builder.add_edge(START, "InputValidator")
+builder.add_edge("InputValidator", "SessionLoad")
+# ... (all linear edges)
+
+# Add conditional edges
+builder.add_conditional_edges("ImageQualityGate", route_by_image_quality, {
+    "vision_extract": "VisionExtract",
+    "clarify_ask": "ClarifyAsk"
+})
+# ... (all conditional edges)
+
+# Compile with Redis checkpointer
+checkpointer = AsyncRedisSaver.from_conn_string(redis_url)
+graph = builder.compile(checkpointer=checkpointer)
+```
+
+---
+
+## Example State Flow
+
+### Routine Triage with Image
+
+```python
+# Initial state
+{
+    "session_id": "uuid-123",
+    "input_type": "image",
+    "image_base64": "...",
+    "lat": 39.9042,
+    "lng": 116.4074,
+    "turn_count": 1,
+    "messages": []
+}
+
+# After Node 3 (ImageQualityGate)
+{
+    "image_is_clear": True,
+    "visual_findings": {"type": "rash", "summary": "..."}
+}
+
+# After Node 5 (ClinicalExtractor)
+{
+    "symptom_schema": {
+        "body_part": "手臂",
+        "symptoms": ["红疹", "痒"],
+        "duration": "2天",
+        "visual_findings": {...}
+    }
+}
+
+# After Node 8 (TriageMerger)
+{
+    "triage_level": "ROUTINE",
+    "triage_reason": "症状轻微，无危险信号",
+    "red_flags_hit": []
+}
+
+# After Node 15 (Navigator)
+{
+    "hospitals": [
+        {"rank": 1, "name": "北京协和医院", ...},
+        {"rank": 2, "name": "中日友好医院", ...},
+        {"rank": 3, "name": "朝阳医院", ...}
+    ],
+    "route_plan": {"mode": "driving", "eta_min": 15}
+}
+
+# After Node 18 (FinalStatusRouter)
+{
+    "status": "final",
+    "final_response": "手臂出现红疹...\n\n建议就近选择综合医院..."
+}
+```
+
+### Emergency Triage (Skip Evidence)
+
+```python
+# After Node 8 (TriageMerger)
+{
+    "triage_level": "EMERGENCY",
+    "triage_reason": "检测到呼吸困难（危险信号）"
+}
+
+# EvidenceRouter (Node 11) routes directly to Navigator
+# Nodes 12-13 (NCBI) are SKIPPED
+```
+
+---
+
+## Next Steps
+
+1. ✅ State schema defined
+2. ✅ Node transitions documented
+3. ✅ Conditional routing logic specified
+4. → Generate quickstart guide (`quickstart.md`)
+5. → Update agent context

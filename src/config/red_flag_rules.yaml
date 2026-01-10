@@ -1,0 +1,199 @@
+# Red Flag Rules for Emergency Detection
+# Version: 1.0.0
+# Last Updated: 2025-01-09
+# WARNING: These rules require medical advisor sign-off before deployment changes
+
+- id: RF_BREATHING_DIFFICULTY
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["呼吸困难", "喘不过气", "窒息感", "呼吸急促", "无法呼吸"]
+  triage_level: EMERGENCY
+  user_message: "检测到呼吸困难症状，建议立即急诊/呼叫急救"
+  department: ["急诊"]
+
+- id: RF_CHEST_PAIN
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: body_part
+      op: equals
+      value: "胸口"
+    - field: symptoms
+      op: contains_any
+      value: ["痛", "闷", "压迫感", "挤压感", "紧缩感"]
+  triage_level: EMERGENCY
+  user_message: "胸痛可能是心脏问题征兆，建议立即急诊/呼叫急救"
+  department: ["急诊"]
+
+- id: RF_CHEST_TIGHTNESS_PLUS_DIFFICULTY
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["胸闷", "胸口闷"]
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["呼吸困难", "喘不过气"]
+  triage_level: EMERGENCY
+  user_message: "胸闷伴呼吸困难，建议立即急诊/呼叫急救"
+  department: ["急诊"]
+
+- id: RF_SEVERE_BLEEDING
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: symptoms
+      op: contains_any
+      value: ["大出血", "大量出血", "流血不止", "喷射性出血"]
+  triage_level: EMERGENCY
+  user_message: "严重出血需要立即止血，建议立即急诊/呼叫急救"
+  department: ["急诊"]
+
+- id: RF_HIGH_FEVER_WITH_SEVERITY
+  priority: medium
+  version: 1.0.0
+  conditions:
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["发热", "发烧", "高热"]
+    - field: severity
+      op: equals
+      value: "严重"
+  triage_level: EMERGENCY
+  user_message: "高热且症状严重，建议尽快急诊排查"
+  department: ["急诊", "发热门诊"]
+
+- id: RF_HEAD_INJURY
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: body_part
+      op: contains_any
+      value: ["头", "头部"]
+    - field: symptoms
+      op: contains_any
+      value: ["晕", "昏迷", "呕吐", "意识不清", "头晕"]
+  triage_level: EMERGENCY
+  user_message: "头部受伤伴随意识症状，建议立即急诊排查"
+  department: ["急诊"]
+
+- id: RF_SEVERE_ALLERGIC_REACTION
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: symptoms
+      op: contains_any
+      value: ["全身红疹", "面部肿胀", "嘴唇肿胀", "眼睑肿胀", "喉头水肿"]
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["呼吸困难", "喘不过气", "窒息感"]
+  triage_level: EMERGENCY
+  user_message: "严重过敏反应可能危及生命，建议立即急诊/呼叫急救"
+  department: ["急诊"]
+
+- id: RF_SUICIDAL_THOUGHTS
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: symptoms
+      op: contains_any
+      value: ["想自杀", "想结束生命", "不想活了", "自残", "轻生"]
+  triage_level: EMERGENCY
+  user_message: "如果您有自杀想法，请立即寻求帮助。可以拨打心理援助热线或前往急诊"
+  department: ["急诊", "心理科"]
+
+- id: RF_ABDOMINAL_PAIN_SEVERE
+  priority: medium
+  version: 1.0.0
+  conditions:
+    - field: body_part
+      op: contains_any
+      value: ["肚子", "腹部", "胃"]
+    - field: severity
+      op: equals
+      value: "严重"
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["呕吐", "发烧", "无法排便", "便血", "呕血"]
+  triage_level: EMERGENCY
+  user_message: "严重腹痛伴随这些症状可能需要紧急处理，建议立即急诊排查"
+  department: ["急诊"]
+
+- id: RF_STROKE_SYMPTOMS
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: symptoms
+      op: contains_any
+      value: ["口角歪斜", "说话不清", "言语障碍", "肢体麻木", "半身不遂", "突然无力"]
+  triage_level: EMERGENCY
+  user_message: "这些症状可能是中风征兆，请立即急诊/呼叫急救（时间就是大脑）"
+  department: ["急诊"]
+
+- id: RF_SEIZURE
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: symptoms
+      op: contains_any
+      value: ["抽搐", "癫痫发作", "痉挛", "意识丧失", "翻白眼"]
+  triage_level: EMERGENCY
+  user_message: "抽搐发作需要立即评估，建议急诊排查"
+  department: ["急诊"]
+
+- id: RF_FRACTURE_OR_TRAUMA
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: symptoms
+      op: contains_any
+      value: ["骨头断了", "骨折", "变形", "无法活动", "剧痛"]
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["大量出血", "休克", "昏迷"]
+  triage_level: EMERGENCY
+  user_message: "严重创伤或骨折需要立即处理，建议急诊/呼叫急救"
+  department: ["急诊"]
+
+- id: RF_POISONING
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: symptoms
+      op: contains_any
+      value: ["中毒", "误服", "过量", "服药过多"]
+  triage_level: EMERGENCY
+  user_message: "中毒需要立即处理，请携带药品包装前往急诊或呼叫急救"
+  department: ["急诊"]
+
+- id: RF_PREGNANCY_COMPPLICATIONS
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["怀孕", "孕妇"]
+    - field: symptoms
+      op: contains_any
+      value: ["阴道出血", "腹痛", "胎动减少", "破水", "宫缩"]
+  triage_level: EMERGENCY
+  user_message: "孕期并发症需要立即评估，建议急诊产科排查"
+  department: ["急诊", "产科"]
+
+- id: RF_HEART_ATTACK_SYMPTOMS
+  priority: high
+  version: 1.0.0
+  conditions:
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["胸痛", "胸闷", "左肩痛", "左臂痛", "下颌痛"]
+    - field: accompanying_symptoms
+      op: contains_any
+      value: ["出汗", "恶心", "呕吐", "头晕", "心慌"]
+  triage_level: EMERGENCY
+  user_message: "这些症状可能是心肌梗死征兆，请立即急诊/呼叫急救"
+  department: ["急诊"]

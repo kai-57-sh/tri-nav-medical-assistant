@@ -1,0 +1,35 @@
+# External API Version Pinning
+# Purpose: Pin external API versions to prevent breaking changes
+# Update Procedure:
+# 1. Review API changelog for breaking changes
+# 2. Test thoroughly in dev environment before updating
+# 3. Update version field and CHANGELOG.md
+# 4. Require manual review + test sign-off per docs/API_VERSIONING.md
+
+amap:
+  api_name: "Amap (高德地图) API"
+  current_version: "v3"  # Amap Place API v3
+  base_url: "https://restapi.amap.com/v3"
+  version_pinned: true
+  notes: "Place Around API for hospital search, Driving API for routes"
+
+weather:
+  api_name: "Weather Service API"
+  current_version: "v1"
+  base_url: "https://api.weather.example.com/v1"
+  version_pinned: false  # Example - adjust based on actual weather API
+  notes: "Weather alerts for travel tips (non-critical path)"
+
+ncbi:
+  api_name: "NCBI E-utilities"
+  current_version: "eutils"
+  base_url: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+  version_pinned: true
+  notes: "PubMed search and article retrieval (E-utilities API)"
+
+qwen:
+  api_name: "Qwen Models via DashScope API"
+  current_version: "compatible-mode/v1"
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  version_pinned: true
+  notes: "OpenAI-compatible API endpoint for Qwen models"
