@@ -36,7 +36,7 @@ async def weather_fetcher(state: Dict[str, Any]) -> Dict[str, Any]:
     session_id = state.get("session_id")
 
     # Skip if no GPS coordinates
-    if not gps_lat or not gps_lng:
+    if gps_lat is None or gps_lng is None:
         logger.info(
             "No GPS coordinates provided, skipping weather check",
             extra={"session_id": session_id}
@@ -87,7 +87,7 @@ async def weather_fetcher(state: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         logger.info(
-            f"Weather alert retrieved: {weather_alert.get('summary')}",
+            f"Weather alert retrieved: {weather_alert.get('condition')}",
             extra={"session_id": session_id}
         )
 

@@ -61,7 +61,7 @@ async def test_clarification_max_rounds_reached(minimal_state):
 
 
 @pytest.mark.asyncio
-async def test_clarification_self_care_skip(minimal_state):
+async def test_clarification_self_care_skip(minimal_state, mock_llm_service):
     """Test clarification generator may skip for SELF_CARE."""
     state = minimal_state.copy()
     state["triage_level"] = "SELF_CARE"
@@ -73,12 +73,14 @@ async def test_clarification_self_care_skip(minimal_state):
     }
     state["turn_count"] = 1
 
-    result = await clarification_generator(state)
+    mock_llm_service.generate_clarification_questions.return_value = []
+    with patch("src.chains.nodes.clarification_generator.get_llm_service", return_value=mock_llm_service):
+        result = await clarification_generator(state)
 
     # For SELF_CARE, still may need clarification unless symptoms are clear
     # The test verifies the behavior - currently it generates questions
     # If SELF_CARE should always skip, the code needs to be updated
-    assert result.get("need_clarify") is not None  # Just verify it runs without error
+    assert result.get("need_clarify") is False
 
 
 @pytest.mark.asyncio

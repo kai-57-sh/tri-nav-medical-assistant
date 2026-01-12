@@ -45,12 +45,14 @@ async def navigator(state: Dict[str, Any]) -> Dict[str, Any]:
         )
         return {"navigation_result": None}
 
-    if not gps_lat or not gps_lng:
+    if gps_lat is None or gps_lng is None:
         logger.warning(
             "No GPS coordinates provided, skipping navigation",
             extra={"session_id": session_id}
         )
         return {"navigation_result": None}
+
+    radius_km = 10
 
     try:
         # Check Redis cache first
@@ -60,6 +62,8 @@ async def navigator(state: Dict[str, Any]) -> Dict[str, Any]:
         if redis_service.is_healthy:
             cached_result = await redis_service.load_cached_result(cache_key)
             if cached_result:
+                if "radius_km" not in cached_result:
+                    cached_result = {**cached_result, "radius_km": radius_km}
                 logger.info(
                     "Returning cached navigation results",
                     extra={"session_id": session_id, "cache_key": cache_key}
@@ -78,7 +82,7 @@ async def navigator(state: Dict[str, Any]) -> Dict[str, Any]:
         hospitals = await amap_service.search_hospitals(
             lat=gps_lat,
             lng=gps_lng,
-            radius_km=10  # 10km radius
+            radius_km=radius_km
         )
 
         if not hospitals:
@@ -94,7 +98,7 @@ async def navigator(state: Dict[str, Any]) -> Dict[str, Any]:
         dest_lng = top_hospital.get("location", {}).get("lng")
 
         route_plan = None
-        if dest_lat and dest_lng:
+        if dest_lat is not None and dest_lng is not None:
             route_plan = await amap_service.get_route(
                 origin_lat=gps_lat,
                 origin_lng=gps_lng,
@@ -104,6 +108,7 @@ async def navigator(state: Dict[str, Any]) -> Dict[str, Any]:
 
         # Build navigation result
         navigation_result = {
+            "radius_km": radius_km,
             "hospitals": hospitals,
             "route_plan": route_plan
         }

@@ -133,7 +133,7 @@ class OpenMeteoService:
             lng: Longitude
 
         Returns:
-            Weather alert dict with summary and tips, or None on failure
+            Weather alert dict with structured fields, or None on failure
         """
         result = await self._make_request(lat, lng)
 
@@ -147,7 +147,7 @@ class OpenMeteoService:
             if weather_data:
                 logger.info(
                     f"Weather retrieved",
-                    extra={"lat": lat, "lng": lng, "weather": weather_data.get("summary")}
+                    extra={"lat": lat, "lng": lng, "weather": weather_data.get("condition")}
                 )
 
             return weather_data
@@ -190,39 +190,15 @@ class OpenMeteoService:
 
             # Extract weather information
             temp = current.get("temperature_2m", 0)
-            feels_like = current.get("apparent_temperature", temp)
             weather_code = current.get("weather_code", 0)
             humidity = int(current.get("relative_humidity_2m", 0))
             wind_speed = current.get("wind_speed_10m", 0)
-            wind_direction = current.get("wind_direction_10m", 0)
 
             # Convert weather code to Chinese description
             text = self.WEATHER_CODES.get(weather_code, "未知")
 
-            # Convert wind direction to cardinal direction
-            wind_dir = self._get_wind_direction(wind_direction)
-
             # Convert wind speed from m/s to Beaufort scale (0-12)
             wind_scale = self._get_beaufort_scale(wind_speed)
-
-            # Generate summary
-            summary_parts = [text, f"{temp:.0f}°C"]
-
-            # Add feels like if different from temp
-            if abs(feels_like - temp) >= 1:
-                summary_parts.append(f"(体感{feels_like:.0f}°C)")
-
-            # Add wind info
-            if wind_dir:
-                summary_parts.append(f"{wind_dir}")
-                if wind_scale > 0:
-                    summary_parts.append(f"{wind_scale}级")
-
-            # Add humidity if notable
-            if humidity >= 80:
-                summary_parts.append(f"湿度{humidity}%")
-
-            summary = "，".join(summary_parts)
 
             # Generate travel tips based on conditions
             tips = self._generate_travel_tips(
@@ -231,10 +207,14 @@ class OpenMeteoService:
                 humidity=humidity,
                 wind_scale=wind_scale
             )
+            tip = "；".join(tips) if tips else "适宜出行"
 
             return {
-                "summary": summary,
-                "tips": tips
+                "condition": text,
+                "temp_c": round(float(temp), 1),
+                "humidity": humidity,
+                "wind_speed_kmh": round(float(wind_speed) * 3.6, 1),
+                "tip": tip
             }
 
         except Exception as e:

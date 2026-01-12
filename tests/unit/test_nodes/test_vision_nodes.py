@@ -70,10 +70,10 @@ async def test_vision_extract_valid_image(minimal_state, sample_image_base64, mo
     state["text"] = "手臂上出现红疹"
 
     mock_llm_service.extract_visual_features.return_value = {
-        "body_part": "手臂",
-        "visual_symptoms": ["红斑", "丘疹"],
-        "distribution": "散在",
-        "severity": "轻微"
+        "type": "rash",
+        "summary": "手臂红斑伴丘疹",
+        "features": ["红斑", "丘疹"],
+        "confidence": 0.8
     }
 
     with patch("src.chains.nodes.vision_extract.get_llm_service", return_value=mock_llm_service):
@@ -81,7 +81,7 @@ async def test_vision_extract_valid_image(minimal_state, sample_image_base64, mo
 
     # Should extract visual findings
     assert result["visual_findings"] is not None
-    assert result["visual_findings"]["body_part"] == "手臂"
+    assert result["visual_findings"]["type"] == "rash"
 
 
 @pytest.mark.asyncio

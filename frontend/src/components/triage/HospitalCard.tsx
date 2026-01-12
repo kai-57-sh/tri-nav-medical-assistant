@@ -23,9 +23,11 @@ export function HospitalCard({ navigation, className, onNavigate }: HospitalCard
       <div className="flex items-center gap-2 text-card-foreground">
         <Hospital className="w-5 h-5 text-blue-500" />
         <h3 className="font-semibold">推荐医院</h3>
-        <span className="text-xs text-muted-foreground ml-auto">
-          搜索范围 {navigation.radius_km}km
-        </span>
+        {navigation.radius_km !== undefined && (
+          <span className="text-xs text-muted-foreground ml-auto">
+            搜索范围 {navigation.radius_km}km
+          </span>
+        )}
       </div>
 
       {/* 医院列表 */}

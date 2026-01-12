@@ -10,6 +10,7 @@ from langgraph.graph import StateGraph, END
 from ..nodes import (
     input_validator,
     session_load,
+    navigation_intent_detector,
     image_quality_gate,
     vision_extract,
     clinical_extractor,
@@ -49,6 +50,7 @@ class TriageState(TypedDict):
     turn_count: int
     symptom_schema: Optional[Dict[str, Any]]
     clarify_questions: List[str]
+    navigation_only: bool  # 纯导航请求标志（无需重新分诊）
 
     # Triage decision
     triage_level: Optional[Literal["EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"]]
@@ -62,6 +64,11 @@ class TriageState(TypedDict):
     # Red flag detection (rule-based)
     rule_triage_level: Optional[str]
     llm_triage_level: Optional[str]
+    llm_triage_reason: Optional[str]
+    llm_recommended_departments: List[str]
+    llm_possible_causes: List[str]
+    llm_self_care_tips: List[str]
+    llm_red_flags: List[str]
     red_flags_hit: List[str]
 
     # Clarification
@@ -83,30 +90,43 @@ class TriageState(TypedDict):
 
     # Final output
     final_response: Optional[str]
+    response: Optional[str]
+    disclaimer: Optional[str]
     status: Literal["final", "need_more_info", "error"]
     error_message: Optional[str]
 
 
-def _should_skip_ncbi(state: TriageState) -> bool:
+async def _should_skip_ncbi(state: TriageState) -> bool:
     """Skip NCBI retrieval for emergency cases."""
     should_retrieve = state.get("should_retrieve_evidence", False)
     return not should_retrieve
 
 
-def _should_skip_navigation(state: TriageState) -> bool:
+async def _should_skip_navigation(state: TriageState) -> bool:
     """Skip navigation for SELF_CARE cases."""
     triage_level = state.get("triage_level")
     return triage_level in ("SELF_CARE", None)
 
 
-def _needs_clarification(state: TriageState) -> bool:
-    """Check if clarification is needed."""
-    return state.get("need_clarify", False)
-
-
-def _has_error(state: TriageState) -> bool:
+async def _has_error(state: TriageState) -> bool:
     """Check if workflow has errored."""
     return state.get("status") == "error"
+
+
+async def _should_skip_clinical(state: TriageState) -> bool:
+    """跳过临床提取，直接进入导航。
+
+    条件：
+    1. navigation_only=True（纯导航请求）
+    2. 有历史分诊数据（triage_level 非空）
+
+    Returns:
+        True: 跳过临床提取，直接导航
+        False: 正常走分诊流程
+    """
+    nav_only = state.get("navigation_only", False)
+    has_triage = state.get("triage_level") is not None
+    return nav_only and has_triage
 
 
 def build_graph() -> StateGraph:
@@ -121,6 +141,7 @@ def build_graph() -> StateGraph:
     # === Add all nodes ===
     graph.add_node("input_validator", input_validator)
     graph.add_node("session_loader", session_load)
+    graph.add_node("navigation_intent_detector", navigation_intent_detector)
     graph.add_node("image_quality_gate", image_quality_gate)
     graph.add_node("vision_extract", vision_extract)
     graph.add_node("clinical_extractor", clinical_extractor)
@@ -146,8 +167,20 @@ def build_graph() -> StateGraph:
     # Input validation → session loader
     graph.add_edge("input_validator", "session_loader")
 
-    # Session loader → image quality gate (US2)
-    graph.add_edge("session_loader", "image_quality_gate")
+    # Session loader → navigation intent detector
+    graph.add_edge("session_loader", "navigation_intent_detector")
+
+    # Navigation intent detector → conditional routing
+    # 如果是纯导航请求且有历史分诊，跳过临床提取，直接导航
+    # 否则正常走分诊流程
+    graph.add_conditional_edges(
+        "navigation_intent_detector",
+        _should_skip_clinical,
+        {
+            True: "navigator",  # 跳过临床提取，直接导航
+            False: "image_quality_gate"  # 正常分诊流程
+        }
+    )
 
     # Image quality gate → vision extract (conditional, US2)
     graph.add_edge("image_quality_gate", "vision_extract")
@@ -170,17 +203,10 @@ def build_graph() -> StateGraph:
     # Domain classifier → clarification generator
     graph.add_edge("domain_classifier", "clarification_generator")
 
-    # Clarification generator → conditional routing
-    # NOTE: When clarification is needed, we still go through reasoning_verifier
-    # to compose the response with questions. The path merges after navigator.
-    graph.add_conditional_edges(
-        "clarification_generator",
-        _needs_clarification,
-        {
-            True: "evidence_router",  # Need clarification → continue through workflow
-            False: "evidence_router"  # No clarification → continue to evidence
-        }
-    )
+    # Clarification generator → evidence routing
+    # Both clarification and final paths continue through evidence routing,
+    # so a direct edge avoids redundant conditional branching.
+    graph.add_edge("clarification_generator", "evidence_router")
 
     # Evidence router → conditional routing (US1 evidence)
     graph.add_conditional_edges(

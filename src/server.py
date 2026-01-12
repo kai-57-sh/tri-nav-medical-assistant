@@ -3,26 +3,23 @@
 This module provides the FastAPI/LangServe entry point for the TriNav API.
 Exposes the triage workflow at POST /assistant/invoke.
 """
-import time
 from contextlib import asynccontextmanager
+import os
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.runnables import RunnableConfig
 from langserve import add_routes
 
 from .config.settings import get_settings
 from .chains.triage_chain import chain
-from .utils.logging_config import get_logger, set_correlation_id
-from .utils.metrics import (
-    request_count,
-    request_duration,
-    external_service_health,
-)
+from .utils.logging_config import get_logger, setup_logging
+from .utils.metrics import external_service_health
 
 # Get settings
 settings = get_settings()
+log_file = os.getenv("TRINAV_LOG_FILE", "logs/trinav.log").strip() or None
+setup_logging(settings.log_level, log_file=log_file)
 logger = get_logger(__name__)
 
 
@@ -102,69 +99,6 @@ async def health_check():
         "status": "healthy" if redis_healthy else "degraded",
         "redis": "healthy" if redis_healthy else "unhealthy",
     }
-
-
-@app.post("/assistant/invoke")
-async def invoke_assistant(request: dict):
-    """Custom invoke endpoint with metrics and correlation ID.
-
-    Args:
-        request: Dict with session_id, text, optional image_base64, gps_lat, gps_lng
-
-    Returns:
-        dict: Triage assessment response
-    """
-    start_time = time.time()
-    session_id = request.get("session_id", "unknown")
-
-    # Set correlation ID for tracing
-    set_correlation_id(session_id)
-
-    try:
-        # Validate required fields
-        if not request.get("session_id"):
-            raise HTTPException(status_code=400, detail="session_id is required")
-
-        if not request.get("text"):
-            raise HTTPException(status_code=400, detail="text is required")
-
-        # Invoke chain
-        config = RunnableConfig(metadata={"session_id": session_id})
-        result = await chain.ainvoke(request, config=config)
-
-        # Record metrics
-        duration = time.time() - start_time
-        status = result.get("status", "error")
-        request_count.labels(endpoint="/assistant/invoke", status=status).inc()
-        request_duration.labels(endpoint="/assistant/invoke").observe(duration)
-
-        if status == "final" and result.get("triage_level"):
-            triage_level = result.get("triage_level")
-            from .utils.metrics import triage_decisions
-            triage_decisions.labels(
-                triage_level=triage_level,
-                source=result.get("triage_source", "unknown")
-            ).inc()
-
-        logger.info(
-            f"Request completed: status={status}",
-            extra={"session_id": session_id, "duration": duration}
-        )
-
-        return result
-
-    except HTTPException:
-        raise
-
-    except ValueError as e:
-        request_count.labels(endpoint="/assistant/invoke", status="validation_error").inc()
-        logger.warning(f"Validation error: {e}", extra={"session_id": session_id})
-        raise HTTPException(status_code=400, detail=str(e))
-
-    except Exception as e:
-        request_count.labels(endpoint="/assistant/invoke", status="error").inc()
-        logger.error(f"Unexpected error: {e}", extra={"session_id": session_id})
-        raise HTTPException(status_code=500, detail="系统暂时繁忙，请稍后重试")
 
 
 @app.get("/")

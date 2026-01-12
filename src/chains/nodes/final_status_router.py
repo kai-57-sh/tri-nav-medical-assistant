@@ -1,6 +1,7 @@
 """Final Status Router node (Node 18)."""
 from typing import Dict, Any
 from src.chains.nodes.base import safe_node
+from src.utils.constants import DISCLAIMER_TEXT
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -20,7 +21,7 @@ async def final_status_router(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     status = state.get("status", "error")
     session_id = state.get("session_id")
-    final_response = state.get("final_response", "")
+    final_response = state.get("final_response", "") or ""
     error_message = state.get("error_message")
 
     if status == "need_more_info":
@@ -35,7 +36,9 @@ async def final_status_router(state: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "status": "need_more_info",
             "session_id": session_id,
-            "clarify_questions": clarify_questions
+            "clarify_questions": clarify_questions,
+            "response": final_response,
+            "disclaimer": DISCLAIMER_TEXT
         }
 
     elif status == "final":
@@ -55,6 +58,7 @@ async def final_status_router(state: Dict[str, Any]) -> Dict[str, Any]:
             "status": "final",
             "session_id": session_id,
             "response": final_response,
+            "disclaimer": DISCLAIMER_TEXT,
             "triage_level": triage_level,
             "recommended_departments": departments,
             "possible_causes": causes,

@@ -67,8 +67,8 @@ async def test_input_validator_invalid_gps_lat(minimal_state):
     """Test input validator rejects invalid GPS latitude."""
     state = minimal_state.copy()
     state["text"] = "手臂疼痛"
-    state["lat"] = 95.0  # Invalid (> 90)
-    state["lng"] = 116.0
+    state["gps_lat"] = 95.0  # Invalid (> 90)
+    state["gps_lng"] = 116.0
 
     result = await input_validator(state)
 
@@ -81,8 +81,8 @@ async def test_input_validator_invalid_gps_lng(minimal_state):
     """Test input validator rejects invalid GPS longitude."""
     state = minimal_state.copy()
     state["text"] = "手臂疼痛"
-    state["lat"] = 39.0
-    state["lng"] = 185.0  # Invalid (> 180)
+    state["gps_lat"] = 39.0
+    state["gps_lng"] = 185.0  # Invalid (> 180)
 
     result = await input_validator(state)
 
@@ -95,14 +95,29 @@ async def test_input_validator_valid_gps(minimal_state):
     """Test input validator accepts valid GPS coordinates."""
     state = minimal_state.copy()
     state["text"] = "手臂疼痛"
+    state["gps_lat"] = 39.9042
+    state["gps_lng"] = 116.4074
+
+    result = await input_validator(state)
+
+    # Should not raise errors
+    assert result["gps_lat"] == 39.9042
+    assert result["gps_lng"] == 116.4074
+    assert result.get("status") != "error"
+
+
+@pytest.mark.asyncio
+async def test_input_validator_valid_legacy_lat_lng(minimal_state):
+    """Test input validator accepts legacy lat/lng fields."""
+    state = minimal_state.copy()
+    state["text"] = "手臂疼痛"
     state["lat"] = 39.9042
     state["lng"] = 116.4074
 
     result = await input_validator(state)
 
-    # Should not raise errors
-    assert result["lat"] == 39.9042
-    assert result["lng"] == 116.4074
+    assert result["gps_lat"] == 39.9042
+    assert result["gps_lng"] == 116.4074
     assert result.get("status") != "error"
 
 

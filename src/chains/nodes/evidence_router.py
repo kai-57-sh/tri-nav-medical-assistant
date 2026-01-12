@@ -35,15 +35,14 @@ async def evidence_router(state: Dict[str, Any]) -> Dict[str, Any]:
         )
         return {"should_retrieve_evidence": False}
 
-    # Skip for SELF_CARE if no causes identified
-    if triage_level == "SELF_CARE":
-        causes = state.get("possible_causes", [])
-        if not causes:
-            logger.info(
-                "Skipping NCBI evidence retrieval (no causes identified)",
-                extra={"session_id": session_id, "triage_level": triage_level}
-            )
-            return {"should_retrieve_evidence": False}
+    # Skip evidence when no causes identified (reduces low-value retrievals)
+    causes = state.get("possible_causes", [])
+    if not causes:
+        logger.info(
+            "Skipping NCBI evidence retrieval (no causes identified)",
+            extra={"session_id": session_id, "triage_level": triage_level}
+        )
+        return {"should_retrieve_evidence": False}
 
     # Retrieve evidence for ROUTINE and URGENT cases
     logger.info(

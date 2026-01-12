@@ -201,3 +201,169 @@ async def test_get_redis_service_singleton():
 
         # Should only create once
         mock_service_class.assert_called_once()
+
+
+@pytest.mark.asyncio
+class TestRedisServiceErrorPaths:
+    """Test Redis service error handling paths."""
+
+    async def test_save_session_redis_error(self, mock_redis_pool, sample_session_state):
+        """Test save_session when Redis raises error."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool_class.from_url.return_value = mock_redis_pool
+            mock_redis = AsyncMock()
+            mock_redis.setex = AsyncMock(side_effect=RedisError("Connection lost"))
+            mock_redis_pool.get_connection.return_value = mock_redis
+
+            service = RedisService()
+            service.redis = mock_redis
+            service._healthy = True
+
+            result = await service.save_session("test-123", sample_session_state)
+
+            # Should return False on error
+            assert result is False
+            # Note: Service doesn't mark itself unhealthy on error in current implementation
+
+    async def test_save_session_unhealthy_service(self, mock_redis_pool, sample_session_state):
+        """Test save_session when service is unhealthy."""
+        service = RedisService()
+        service._healthy = False
+
+        result = await service.save_session("test-123", sample_session_state)
+
+        # Should return False without trying
+        assert result is False
+
+    async def test_save_session_no_redis(self, mock_redis_pool, sample_session_state):
+        """Test save_session when redis is None."""
+        service = RedisService()
+        service._healthy = True
+        service.redis = None
+
+        result = await service.save_session("test-123", sample_session_state)
+
+        # Should return False
+        assert result is False
+
+    async def test_load_session_redis_error(self, mock_redis_pool):
+        """Test load_session when Redis raises error."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool_class.from_url.return_value = mock_redis_pool
+            mock_redis = AsyncMock()
+            mock_redis.get = AsyncMock(side_effect=RedisError("Connection lost"))
+            mock_redis_pool.get_connection.return_value = mock_redis
+
+            service = RedisService()
+            service.redis = mock_redis
+            service._healthy = True
+
+            result = await service.load_session("test-123")
+
+            # Should return None on error
+            assert result is None
+
+    async def test_load_session_json_decode_error(self, mock_redis_pool):
+        """Test load_session when JSON parsing fails."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool_class.from_url.return_value = mock_redis_pool
+            mock_redis = AsyncMock()
+            mock_redis.get = AsyncMock(return_value="invalid json{")
+            mock_redis_pool.get_connection.return_value = mock_redis
+
+            service = RedisService()
+            service.redis = mock_redis
+            service._healthy = True
+
+            result = await service.load_session("test-123")
+
+            # Should return None on JSON error
+            assert result is None
+
+    async def test_cache_external_result_redis_error(self, mock_redis_pool, sample_cache_result):
+        """Test cache_external_result when Redis raises error."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool_class.from_url.return_value = mock_redis_pool
+            mock_redis = AsyncMock()
+            mock_redis.setex = AsyncMock(side_effect=RedisError("Connection lost"))
+            mock_redis_pool.get_connection.return_value = mock_redis
+
+            service = RedisService()
+            service.redis = mock_redis
+            service._healthy = True
+
+            await service.cache_external_result("test:key", sample_cache_result)
+
+            # Should not raise, just log error
+            mock_redis.setex.assert_called_once()
+
+    async def test_load_cached_result_json_decode_error(self, mock_redis_pool):
+        """Test load_cached_result when JSON parsing fails."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool_class.from_url.return_value = mock_redis_pool
+            mock_redis = AsyncMock()
+            mock_redis.get = AsyncMock(return_value="invalid json{")
+            mock_redis_pool.get_connection.return_value = mock_redis
+
+            service = RedisService()
+            service.redis = mock_redis
+            service._healthy = True
+
+            result = await service.load_cached_result("test:key")
+
+            # Should return None on JSON error
+            assert result is None
+
+    async def test_disconnect_closes_pool(self, mock_redis_pool):
+        """Test disconnect closes connection pool."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool = AsyncMock()
+            mock_pool.aclose = AsyncMock()
+            mock_pool_class.from_url.return_value = mock_pool
+
+            service = RedisService()
+            service.pool = mock_pool
+            service._healthy = True
+
+            await service.disconnect()
+
+            # Verify pool was closed
+            mock_pool.aclose.assert_called_once()
+            assert service._healthy is False
+            # Note: pool is not set to None in current implementation
+
+    async def test_close_redis_service(self, mock_redis_pool):
+        """Test close_redis_service closes connection and clears singleton."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool = AsyncMock()
+            mock_pool.aclose = AsyncMock()
+            mock_pool_class.from_url.return_value = mock_pool
+
+            service = RedisService()
+            service.pool = mock_pool
+            service._healthy = True
+
+            with patch('src.services.redis_service._redis_service', service):
+                from src.services.redis_service import close_redis_service
+                await close_redis_service()
+
+            # Verify pool was closed
+            mock_pool.aclose.assert_called_once()
+
+    async def test_delete_session_redis_error(self, mock_redis_pool):
+        """Test delete_session when Redis raises error."""
+        with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
+            mock_pool_class.from_url.return_value = mock_redis_pool
+            mock_redis = AsyncMock()
+            mock_redis.delete = AsyncMock(side_effect=RedisError("Connection lost"))
+            mock_redis_pool.get_connection.return_value = mock_redis
+
+            service = RedisService()
+            service.redis = mock_redis
+            service._healthy = True
+
+            # Should not raise
+            await service.delete_session("test-123")
+
+            # Verify delete was attempted
+            mock_redis.delete.assert_called_once()

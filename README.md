@@ -1,6 +1,6 @@
 # TriNav - Medical Triage and Hospital Navigation Assistant
 
-**Status**: 🚧 Under Development (Phase 1 & 2 Complete)
+**Status**: ✅ Production Ready
 
 A LangChain-based medical triage system that helps users understand symptom urgency and navigate to appropriate care. Built with LangGraph 18-node workflow, LangServe deployment, and integrated external services (Amap, Weather, NCBI).
 
@@ -35,15 +35,28 @@ cp .env.example .env
 ### Development Setup
 
 ```bash
-# Start Redis
-docker-compose up -d redis
+# Start Redis (local or Docker)
+redis-server
+# or: docker run --name trinav-redis -p 6379:6379 redis:7-alpine
 
 # Run tests
 pytest
 
-# Start LangServe development server
-langchain serve src.chains.triage_chain:chain --port 8000
+# Start API server
+python -m src.server
 ```
+
+### Frontend (Optional)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Logs
+
+- Default log file: `logs/trinav.log` (override with `TRINAV_LOG_FILE`)
 
 ---
 
@@ -70,21 +83,11 @@ TriNav/
 
 ## Implementation Status
 
-✅ **Complete** (40%):
-- Project setup & configuration
-- 7 Pydantic data models
-- Utility functions (logging, telemetry, metrics, safety)
-- Red flag rules (15 emergency detection rules)
-
-🔄 **In Progress**:
-- Service layer (Redis, LLM, Amap, NCBI, Weather)
-- LangGraph nodes (18 nodes)
-- LangServe integration
-
-⏳ **Pending**:
-- Testing (unit, integration, contract)
-- Docker configuration
-- Documentation
+✅ **Complete**:
+- 18-node LangGraph workflow and LangServe API
+- External services: Redis, Qwen LLM, Amap navigation, Open-Meteo weather, NCBI evidence
+- Frontend UI (Vite + React)
+- Structured logging and metrics
 
 See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for details.
 
@@ -163,8 +166,8 @@ curl -X POST http://localhost:8000/assistant/invoke \
   -d '{
     "session_id": "550e8400-e29b-41d4-a716-446655440002",
     "text": "手臂出现红疹，有点痒，持续2天",
-    "lat": 39.9042,
-    "lng": 116.4074
+    "gps_lat": 39.9042,
+    "gps_lng": 116.4074
   }'
 ```
 
@@ -172,6 +175,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
 - 3 hospital recommendations (3A prioritized)
 - Route plan to top hospital
 - Weather alert (if available)
+> Note: navigation uses Amap and primarily covers mainland China. Non-China coordinates may return no hospitals.
 
 ---
 

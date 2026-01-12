@@ -1,9 +1,25 @@
 """Shared test fixtures for TriNav."""
 import base64
+import os
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+# Disable LangSmith tracing during tests to avoid background executor threads.
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
+
+@pytest.fixture
+def event_loop():
+    """Create an event loop that shuts down the default executor on teardown."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    yield loop
+    loop.run_until_complete(loop.shutdown_asyncgens())
+    loop.run_until_complete(loop.shutdown_default_executor())
+    loop.close()
+    asyncio.set_event_loop(None)
 
 @pytest.fixture
 def sample_symptom_schema():
@@ -41,8 +57,14 @@ def minimal_state():
         "red_flags": [],
         "rule_triage_level": None,
         "llm_triage_level": None,
+        "llm_triage_reason": None,
+        "llm_recommended_departments": [],
+        "llm_possible_causes": [],
+        "llm_self_care_tips": [],
+        "llm_red_flags": [],
         "red_flags_hit": [],
         "need_clarify": False,
+        "navigation_only": False,
         "image_as_valid": False,
         "should_retrieve_evidence": False,
         "ncbi_query": "",
@@ -52,6 +74,8 @@ def minimal_state():
         "weather_alert": None,
         "case_domain": None,
         "final_response": None,
+        "response": None,
+        "disclaimer": None,
         "status": "processing",
         "error_message": None,
     }
@@ -72,9 +96,9 @@ def mock_llm_service(sample_symptom_schema):
     })
     mock.generate_clarification_questions = AsyncMock(return_value=[])
     mock.extract_visual_features = AsyncMock(return_value={
-        "body_part": "手臂",
-        "visual_symptoms": ["红斑", "丘疹"],
-        "distribution": "散在",
+        "type": "rash",
+        "summary": "手臂红斑伴丘疹",
+        "features": ["红斑", "丘疹"],
         "confidence": 0.8,
     })
     mock.verify_safety = AsyncMock(return_value={
@@ -138,8 +162,11 @@ def mock_weather_service():
     """Mock weather service for Open-Meteo."""
     mock = MagicMock()
     mock.get_weather = AsyncMock(return_value={
-        "summary": "阴天，气温15°C",
-        "tips": ["注意保暖"],
+        "condition": "阴天",
+        "temp_c": 15,
+        "humidity": 70,
+        "wind_speed_kmh": 12,
+        "tip": "注意保暖",
     })
     return mock
 

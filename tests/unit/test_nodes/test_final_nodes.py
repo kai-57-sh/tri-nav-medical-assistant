@@ -4,6 +4,7 @@ from src.chains.nodes.session_saver import session_save
 from src.chains.nodes.reasoning_verifier import reasoning_verifier
 from src.chains.nodes.response_composer import compose_response
 from src.chains.nodes.final_status_router import final_status_router
+from src.utils.constants import DISCLAIMER_TEXT
 from unittest.mock import patch, AsyncMock
 
 
@@ -86,8 +87,7 @@ def test_response_composer_emergency():
     assert "检测到紧急情况" in response
     assert "急诊科" in response
     assert "需要立即就医" in response
-    # Should have mandatory disclaimer
-    assert "免责声明" in response
+    # Should have mandatory hotline tip
     assert "温馨提示" in response
 
 
@@ -119,8 +119,11 @@ def test_response_composer_routine_with_navigation():
             }
         },
         "weather_alert": {
-            "summary": "阴天，气温15°C",
-            "tips": ["注意保暖", "路面湿滑"]
+            "condition": "阴天",
+            "temp_c": 15,
+            "humidity": 70,
+            "wind_speed_kmh": 12,
+            "tip": "注意保暖"
         },
         "evidence_selected": [
             {
@@ -143,7 +146,7 @@ def test_response_composer_routine_with_navigation():
     assert "天气提示" in response
     assert "注意保暖" in response
     assert "参考文献" in response
-    assert "免责声明" in response
+    assert "温馨提示" in response
 
 
 def test_response_composer_self_care():
@@ -167,7 +170,7 @@ def test_response_composer_self_care():
     assert "💡 居家观察" in response
     assert "可居家观察" in response
     assert "多喝水" in response
-    assert "免责声明" in response
+    assert "温馨提示" in response
 
 
 def test_response_composer_mandatory_elements():
@@ -187,10 +190,7 @@ def test_response_composer_mandatory_elements():
 
     response = compose_response(state)
 
-    # Should always include mandatory elements
-    assert "免责声明" in response
-    assert "仅供参考" in response
-    assert "不替代专业医疗诊断" in response
+    # Should always include mandatory hotline tip
     assert "温馨提示" in response
     assert "拨打当地医疗热线" in response or "拨打医院电话" in response
 
@@ -247,6 +247,7 @@ async def test_reasoning_verifier_unsafe_sanitized(minimal_state, mock_llm_servi
     state = minimal_state.copy()
     state["need_clarify"] = False
     state["triage_level"] = "ROUTINE"
+    state["triage_reason"] = "诊断为皮肤问题"
 
     mock_llm_service.verify_safety.return_value = {
         "is_safe": False,
@@ -277,6 +278,8 @@ async def test_final_status_router_need_more_info(minimal_state):
     assert result["status"] == "need_more_info"
     assert result["session_id"] == "test-123"
     assert result["clarify_questions"] == ["问题1", "问题2"]
+    assert result["response"] == "Need more info"
+    assert result["disclaimer"] == DISCLAIMER_TEXT
 
 
 @pytest.mark.asyncio
@@ -300,6 +303,7 @@ async def test_final_status_router_final_response(minimal_state):
     assert result["status"] == "final"
     assert result["session_id"] == "test-456"
     assert result["response"] == "Full assessment"
+    assert result["disclaimer"] == DISCLAIMER_TEXT
     assert result["triage_level"] == "ROUTINE"
     assert "皮肤科" in result["recommended_departments"]
 

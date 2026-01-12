@@ -18,6 +18,7 @@ from .weather_fetcher import weather_fetcher
 from .reasoning_verifier import reasoning_verifier
 from src.chains.nodes.response_composer import compose_response
 from .final_status_router import final_status_router
+from .navigation_intent_detector import navigation_intent_detector
 
 __all__ = [
     "input_validator",
@@ -39,4 +40,5 @@ __all__ = [
     "reasoning_verifier",
     "compose_response",
     "final_status_router",
+    "navigation_intent_detector",
 ]

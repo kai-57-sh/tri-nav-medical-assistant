@@ -2,9 +2,9 @@
 
 > 医疗分诊与医院导航助手 - 完整用户指南
 
-**版本**: 1.0.0
-**更新日期**: 2026-01-11
-**项目状态**: ✅ 生产就绪 (100% 完成)
+**版本**: 1.1.0
+**更新日期**: 2026-01-12
+**项目状态**: ✅ 生产就绪
 
 ---
 
@@ -100,14 +100,14 @@
 ### 1.4 项目状态
 
 ```
-✅ 100% 完成 - 生产就绪
+✅ 生产就绪
 
 已完成：
   ✓ 7 个 Pydantic 数据模型
   ✓ 5 个服务层模块（Redis、LLM、高德、NCBI、天气）
   ✓ 18 个 LangGraph 工作流节点
   ✓ 15 条版本化红旗规则
-  ✓ 120+ 测试用例（单元测试 + 集成测试）
+  ✓ 测试套件（单元测试 + 集成测试）
   ✓ LangServe API 服务器
   ✓ 安全验证机制
   ✓ 优雅降级处理
@@ -136,6 +136,8 @@ pip install -r requirements-dev.txt
 cat > .env << EOF
 QWEN_API_KEY=sk-xxxxx  # 替换为你的 API Key
 REDIS_URL=redis://localhost:6379
+AMAP_API_KEY=your_amap_key_here  # 可选，导航功能需要
+TRINAV_LOG_FILE=logs/trinav.log  # 可选，日志文件路径
 EOF
 
 # 5. 启动 Redis
@@ -268,6 +270,7 @@ SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
 SERVER_DEBUG=false                # 开发模式热重载
 LOG_LEVEL=INFO                    # DEBUG, INFO, WARNING, ERROR
+TRINAV_LOG_FILE=logs/trinav.log   # 可选，日志文件路径
 ```
 
 ### 3.3 API Key 获取指南
@@ -289,7 +292,9 @@ LOG_LEVEL=INFO                    # DEBUG, INFO, WARNING, ERROR
 
 ### 3.4 Docker 环境安装
 
-**使用 Docker Compose（推荐）：**
+**使用 Docker Compose（示例，需自行保存为 docker-compose.yml）：**
+
+> 说明：仓库不内置 docker-compose.yml，可按需参考下方示例创建。
 
 ```yaml
 # docker-compose.yml
@@ -312,7 +317,8 @@ volumes:
 
 ```bash
 # 启动 Redis
-docker-compose up -d redis
+redis-server
+# or: docker run --name trinav-redis -p 6379:6379 redis:7-alpine
 
 # 验证运行
 docker ps | grep redis
@@ -1103,9 +1109,10 @@ Redis 存储结构:
 
 | 问题 | 可能原因 | 解决方案 |
 |:-----|:---------|:---------|
-| 服务无法启动 | Redis 未运行 | `docker-compose up -d redis` |
+| 服务无法启动 | Redis 未运行 | 启动 Redis（`redis-server` 或 `docker run -d -p 6379:6379 redis:7-alpine`） |
 | API 调用超时 | LLM 响应慢 | 检查网络，增加超时时间 |
 | 导航功能不可用 | 未配置高德 API Key | 添加 `AMAP_API_KEY` |
+| 海外坐标无医院 | 高德地图覆盖有限 | 使用国内坐标或接入海外地图服务 |
 | 会话不持久 | Redis 连接失败 | 检查 `REDIS_URL` |
 | 分诊结果为空 | LLM 配置错误 | 验证 `QWEN_API_KEY` |
 | 图片识别失败 | 图片格式不支持 | 使用 JPEG/PNG，<5MB |
@@ -1113,6 +1120,7 @@ Redis 存储结构:
 ### 9.2 日志查看
 
 ```bash
+# 默认日志路径：logs/trinav.log（可用 TRINAV_LOG_FILE 覆盖）
 # 查看服务日志
 tail -f logs/trinav.log
 
@@ -1228,10 +1236,12 @@ QWEN_API_KEY=sk-xxxxx
 REDIS_URL=redis://localhost:6379
 SERVER_DEBUG=true
 LOG_LEVEL=DEBUG
+TRINAV_LOG_FILE=logs/trinav.log
 EOF
 
 # 启动 Redis
-docker-compose up -d redis
+redis-server
+# or: docker run --name trinav-redis -p 6379:6379 redis:7-alpine
 
 # 启动开发服务器（热重载）
 python -m src.server
@@ -1396,7 +1406,9 @@ EXPOSE 8000
 CMD ["python", "-m", "src.server"]
 ```
 
-**docker-compose.yml:**
+**docker-compose.yml（示例，需自行保存）：**
+
+> 说明：仓库不内置 docker-compose.yml，可按需参考下方示例创建。
 
 ```yaml
 version: '3.8'
@@ -1440,7 +1452,7 @@ volumes:
   redis_data:
 ```
 
-**部署命令：**
+**部署命令（基于上面的 docker-compose.yml 示例）：**
 
 ```bash
 # 构建并启动
@@ -1537,6 +1549,7 @@ LANGCHAIN_API_KEY=xxxxx                  # LangSmith
 # 生产配置
 SERVER_DEBUG=false                       # ✅ 生产设为 false
 LOG_LEVEL=INFO                           # ✅ 避免 DEBUG
+TRINAV_LOG_FILE=logs/trinav.log          # 可选，日志文件路径
 ```
 
 ---

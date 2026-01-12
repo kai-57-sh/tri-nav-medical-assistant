@@ -2,8 +2,8 @@
 
 > 深入技术架构与开发实践手册
 
-版本: 1.0.0
-更新日期: 2026-01-11
+版本: 1.1.0
+更新日期: 2026-01-12
 
 ---
 
@@ -211,12 +211,15 @@ TriNav/
 │   ├── USER_MANUAL.md            # 用户手册
 │   └── DEVELOPER_GUIDE.md        # 开发者指南（本文件）
 │
+├── frontend/                     # 前端（Vite + React）
+│
 ├── specs/                        # 规格文档
 │   └── 001-medical-triage-nav/
 │
 ├── .env.example                  # 环境变量模板
-├── docker-compose.yml            # Docker编排
-├── Dockerfile                    # 镜像构建
+├── AGENTS.md                     # 贡献与协作指南
+├── docker-compose.yml            # Docker编排（可选，自行提供）
+├── Dockerfile                    # 镜像构建（可选，自行提供）
 ├── requirements.txt              # 生产依赖
 ├── requirements-dev.txt          # 开发依赖
 ├── pyproject.toml               # 项目配置
@@ -1558,6 +1561,7 @@ SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
 SERVER_DEBUG=false
 LOG_LEVEL=INFO
+TRINAV_LOG_FILE=logs/trinav.log
 
 # === 可观测性 ===
 LANGCHAIN_TRACING_V2=false
@@ -1579,12 +1583,17 @@ pytest -v                               # 运行测试
 black src/ tests/                       # 格式化代码
 ruff check src/ tests/                  # 检查代码
 
-# Docker
-docker-compose up -d                    # 启动服务
-docker-compose logs -f trinav           # 查看日志
-docker-compose down                     # 停止服务
+# 前端
+cd frontend                             # 进入前端目录
+npm install                             # 安装依赖
+npm run dev                             # 启动前端
 
-# Redis
+# 日志
+tail -f logs/trinav.log                 # 追踪日志
+
+# Redis (本地或 Docker)
+redis-server                            # 本地启动
+# or: docker run --name trinav-redis -p 6379:6379 redis:7-alpine
 redis-cli ping                          # 检查连接
 redis-cli keys "session:*"              # 查看会话
 redis-cli del "session:xxx"             # 删除会话
@@ -1599,6 +1608,6 @@ redis-cli del "session:xxx"             # 删除会话
 
 ---
 
-**文档版本**: 1.0.0
-**最后更新**: 2026-01-11
+**文档版本**: 1.1.0
+**最后更新**: 2026-01-12
 **维护者**: TriNav 开发团队

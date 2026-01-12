@@ -27,6 +27,7 @@ async def test_evidence_router_routine_retrieve(minimal_state):
     """Test evidence router retrieves for ROUTINE."""
     state = minimal_state.copy()
     state["triage_level"] = "ROUTINE"
+    state["possible_causes"] = ["可能原因"]
 
     result = await evidence_router(state)
 
@@ -52,6 +53,7 @@ async def test_evidence_router_urgent_retrieve(minimal_state):
     """Test evidence router retrieves for URGENT."""
     state = minimal_state.copy()
     state["triage_level"] = "URGENT"
+    state["possible_causes"] = ["可能原因"]
 
     result = await evidence_router(state)
 
@@ -316,7 +318,7 @@ async def test_weather_fetcher_success(minimal_state, mock_weather_service, mock
 
     # Should return weather alert
     assert result["weather_alert"] is not None
-    assert result["weather_alert"]["summary"] == "阴天，气温15°C"
+    assert result["weather_alert"]["condition"] == "阴天"
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,17 @@ interface Session {
   messages: Message[];
 }
 
+// 医院请求关键词检测
+const isHospitalRequest = (text: string): boolean => {
+  const positiveKeywords = ['医院', '就医', '导航', '推荐医院', '挂号', '急诊'];
+  const negativeKeywords = ['不去医院', '不想去医院', '无需就医'];
+
+  const hasPositive = positiveKeywords.some(kw => text.includes(kw));
+  const hasNegative = negativeKeywords.some(kw => text.includes(kw));
+
+  return hasPositive && !hasNegative;
+};
+
 function App() {
   const [sessions, setSessions] = useState<Session[]>([
     {
@@ -66,6 +77,28 @@ function App() {
   const handleSend = async () => {
     if (!input.trim() && !imageData) return;
     if (isLoading) return;
+
+    // 新增：医院请求且无 GPS 时，引导定位
+    if (isHospitalRequest(input) && !gpsLocation) {
+      const locationPrompt: Message = {
+        id: generateUUID(),
+        role: 'assistant',
+        content: '需要定位才能推荐医院。请点击右上角的定位按钮获取位置后，重新发送医院请求。',
+        timestamp: new Date(),
+      };
+
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id === currentSessionId) {
+            return { ...s, messages: [...s.messages, locationPrompt] };
+          }
+          return s;
+        })
+      );
+
+      setInput('');  // 清空输入，用户需要重新发送
+      return;
+    }
 
     const userMessage: Message = {
       id: generateUUID(),

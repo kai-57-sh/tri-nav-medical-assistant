@@ -219,7 +219,7 @@ export function TriageCard({ data, className }: TriageCardProps) {
           </CollapsibleSection>
         )}
 
-        {/* 天气预警 */}
+        {/* 天气预警 - 仅使用新结构字段 */}
         {data.weather_alert && (
           <CollapsibleSection
             id="weather"
@@ -227,40 +227,85 @@ export function TriageCard({ data, className }: TriageCardProps) {
             icon={Activity}
           >
             <div className="p-2 bg-blue-50 dark:bg-blue-950/30 rounded">
-              <p className="text-sm">
-                <span className="font-medium">天气: </span>
-                {data.weather_alert.condition}
-              </p>
-              <p className="text-sm">
-                <span className="font-medium">气温: </span>
-                {data.weather_alert.temperature_c}°C
-              </p>
-              {data.weather_alert.advice && (
-                <p className="text-sm mt-1 text-muted-foreground">
-                  {data.weather_alert.advice}
-                </p>
-              )}
+              {(() => {
+                const weather = data.weather_alert;
+
+                return (
+                  <>
+                    {weather.condition && (
+                      <p className="text-sm">
+                        <span className="font-medium">天气: </span>
+                        {weather.condition}
+                      </p>
+                    )}
+                    {weather.temp_c !== undefined && (
+                      <p className="text-sm">
+                        <span className="font-medium">气温: </span>
+                        {weather.temp_c}°C
+                      </p>
+                    )}
+                    {weather.humidity !== undefined && (
+                      <p className="text-sm">
+                        <span className="font-medium">湿度: </span>
+                        {weather.humidity}%
+                      </p>
+                    )}
+                    {weather.wind_speed_kmh !== undefined && (
+                      <p className="text-sm">
+                        <span className="font-medium">风速: </span>
+                        {weather.wind_speed_kmh}km/h
+                      </p>
+                    )}
+                    {weather.tip && (
+                      <p className="text-sm mt-1 text-muted-foreground">
+                        {weather.tip}
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </CollapsibleSection>
         )}
 
         {/* 视觉发现 */}
-        {data.visual_findings && data.visual_findings.observations.length > 0 && (
+        {data.visual_findings && (
           <CollapsibleSection
             id="visual"
             title="图片分析"
             icon={Activity}
           >
-            <div className="space-y-1">
-              {data.visual_findings.observations.map((obs, idx) => (
-                <p key={idx} className="text-sm text-muted-foreground">
-                  • {obs}
-                </p>
-              ))}
-              <p className="text-xs text-muted-foreground mt-2">
-                置信度: {(data.visual_findings.confidence * 100).toFixed(0)}%
-              </p>
-            </div>
+            {(() => {
+              const findings = data.visual_findings;
+              const features = findings.features?.length
+                ? findings.features
+                : findings.observations;
+              const confidence = findings.confidence;
+
+              return (
+                <div className="space-y-1">
+                  {findings.summary && (
+                    <p className="text-sm text-muted-foreground">
+                      {findings.summary}
+                    </p>
+                  )}
+                  {features && features.length > 0 && (
+                    <div className="space-y-1">
+                      {features.map((item, idx) => (
+                        <p key={idx} className="text-sm text-muted-foreground">
+                          • {item}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {confidence !== undefined && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      置信度: {(confidence * 100).toFixed(0)}%
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </CollapsibleSection>
         )}
 
@@ -278,12 +323,25 @@ export function TriageCard({ data, className }: TriageCardProps) {
                   className="p-2 bg-muted/50 rounded text-sm"
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium">{ev.source_description}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {(ev.confidence * 100).toFixed(0)}%
+                    <span className="font-medium">
+                      {ev.title || ev.source_description || '参考资料'}
                     </span>
+                    {ev.year && (
+                      <span className="text-xs text-muted-foreground">
+                        {ev.year}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-muted-foreground">{ev.content}</p>
+                  {(ev.source || ev.type) && (
+                    <p className="text-xs text-muted-foreground">
+                      {[ev.source, ev.type].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                  {(ev.note || ev.content) && (
+                    <p className="text-muted-foreground">
+                      {ev.note || ev.content}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

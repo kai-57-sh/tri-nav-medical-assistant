@@ -113,11 +113,34 @@ class AmapService:
 
         result = await self._make_request("place/around", params)
 
-        if not result or "pois" not in result:
-            logger.warning("No hospitals found or API failure")
+        if not result:
+            logger.warning("Amap place/around request returned no data")
+            return []
+
+        if "pois" not in result:
+            logger.warning(
+                "Amap place/around response missing POIs",
+                extra={
+                    "status": result.get("status"),
+                    "info": result.get("info"),
+                    "infocode": result.get("infocode")
+                }
+            )
             return []
 
         pois = result["pois"]
+        if not pois:
+            logger.info(
+                "Amap returned zero POIs for hospital search",
+                extra={
+                    "count": result.get("count"),
+                    "status": result.get("status"),
+                    "info": result.get("info"),
+                    "infocode": result.get("infocode"),
+                    "suggestion": result.get("suggestion")
+                }
+            )
+            return []
 
         # Process and rank hospitals
         hospitals = []

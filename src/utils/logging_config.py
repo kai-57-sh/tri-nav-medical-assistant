@@ -2,7 +2,8 @@
 import logging
 import sys
 import json
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
 from contextvars import ContextVar
 from pythonjsonlogger import jsonlogger
 
@@ -21,11 +22,12 @@ class JSONFormatter(jsonlogger.JsonFormatter):
             log_record["correlation_id"] = correlation_id
 
 
-def setup_logging(log_level: str = "INFO") -> logging.Logger:
+def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> logging.Logger:
     """Setup structured logging with JSON formatting.
 
     Args:
         log_level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_file: Optional file path for JSON logs
 
     Returns:
         Configured logger instance
@@ -39,13 +41,21 @@ def setup_logging(log_level: str = "INFO") -> logging.Logger:
 
     # Create console handler with JSON formatter
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
+    handler.setLevel(getattr(logging, log_level.upper()))
     formatter = JSONFormatter(
         "%(asctime)s %(name)s %(levelname)s %(message)s %(correlation_id)s",
         datefmt="%Y-%m-%dT%H:%M:%S%z"
     )
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
+
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setLevel(getattr(logging, log_level.upper()))
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
 
     return root_logger
 

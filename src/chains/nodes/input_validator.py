@@ -1,13 +1,32 @@
 """Input Validator node (Node 1)."""
 import uuid
 import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from src.chains.nodes.base import safe_node
 from src.config.settings import get_settings
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+
+def _coerce_coordinate(value: Any, label: str) -> Optional[float]:
+    """Coerce coordinate input to float if possible."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{label}格式无效（{value}）")
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return float(stripped)
+        except ValueError:
+            raise ValueError(f"{label}格式无效（{value}）")
+    raise ValueError(f"{label}格式无效（{value}）")
 
 
 @safe_node("InputValidator")
@@ -17,7 +36,7 @@ async def input_validator(state: Dict[str, Any]) -> Dict[str, Any]:
     Validation Rules:
     - Text: Max 2000 chars (FR-001)
     - Image base64: Valid base64 string (FR-002)
-    - GPS: Valid lat/lng ranges (FR-003, FR-004)
+    - GPS: Valid gps_lat/gps_lng ranges (legacy lat/lng supported) (FR-003, FR-004)
     - Session ID: UUID format or generate new (FR-005)
 
     Args:
@@ -32,8 +51,10 @@ async def input_validator(state: Dict[str, Any]) -> Dict[str, Any]:
     # Extract input fields
     text = state.get("text")
     image_base64 = state.get("image_base64")
-    lat = state.get("lat")
-    lng = state.get("lng")
+    gps_lat = _coerce_coordinate(state.get("gps_lat"), "纬度")
+    gps_lng = _coerce_coordinate(state.get("gps_lng"), "经度")
+    lat = _coerce_coordinate(state.get("lat"), "纬度")
+    lng = _coerce_coordinate(state.get("lng"), "经度")
     session_id = state.get("session_id")
 
     # Validate or generate session ID
@@ -75,13 +96,19 @@ async def input_validator(state: Dict[str, Any]) -> Dict[str, Any]:
         if estimated_bytes > max_size:
             raise ValueError(f"图片大小超过限制（{estimated_bytes / 1024 / 1024:.1f}MB/5MB）")
 
-    # Validate GPS coordinates if provided
-    if lat is not None and lng is not None:
-        if not (-90 <= lat <= 90):
-            raise ValueError(f"纬度无效（{lat}），应在-90到90之间")
+    # Normalize GPS coordinates (prefer gps_lat/gps_lng, fallback to legacy lat/lng)
+    if gps_lat is None and lat is not None:
+        gps_lat = lat
+    if gps_lng is None and lng is not None:
+        gps_lng = lng
 
-        if not (-180 <= lng <= 180):
-            raise ValueError(f"经度无效（{lng}），应在-180到180之间")
+    # Validate GPS coordinates if provided
+    if gps_lat is not None and gps_lng is not None:
+        if not (-90 <= gps_lat <= 90):
+            raise ValueError(f"纬度无效（{gps_lat}），应在-90到90之间")
+
+        if not (-180 <= gps_lng <= 180):
+            raise ValueError(f"经度无效（{gps_lng}），应在-180到180之间")
 
     # Determine input type
     input_type = "image" if image_base64 else "text"
@@ -95,6 +122,8 @@ async def input_validator(state: Dict[str, Any]) -> Dict[str, Any]:
         "input_type": input_type,
         "text": text,
         "image_base64": image_base64,
+        "gps_lat": gps_lat,
+        "gps_lng": gps_lng,
         "lat": lat,
         "lng": lng,
         "turn_count": turn_count,

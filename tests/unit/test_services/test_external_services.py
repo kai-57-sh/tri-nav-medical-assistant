@@ -193,9 +193,12 @@ class TestWeatherService:
 
         # Should return weather alert with tips
         assert result is not None
-        assert "summary" in result
-        assert "tips" in result
-        assert len(result["tips"]) > 0
+        assert "condition" in result
+        assert "temp_c" in result
+        assert "humidity" in result
+        assert "wind_speed_kmh" in result
+        assert "tip" in result
+        assert result["tip"]
 
     async def test_get_weather_rain(self):
         """Test weather generates tips for rain."""
@@ -216,7 +219,7 @@ class TestWeatherService:
             result = await service.get_weather(39.9042, 116.4074)
 
         # Should include umbrella tip
-        assert any("伞" in tip for tip in result["tips"])
+        assert "伞" in result["tip"]
 
     async def test_get_weather_cold(self):
         """Test weather generates tips for cold weather."""
@@ -237,7 +240,7 @@ class TestWeatherService:
             result = await service.get_weather(39.9042, 116.4074)
 
         # Should include warm clothing tip
-        assert any("暖" in tip or "衣" in tip for tip in result["tips"])
+        assert "保暖" in result["tip"] or "外套" in result["tip"]
 
     async def test_get_weather_failure(self):
         """Test weather retrieval handles failure gracefully (non-critical)."""

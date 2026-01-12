@@ -1,12 +1,13 @@
 """Response Composer helper function."""
 from typing import Dict, Any
+from src.utils.constants import HOTLINE_TIP
 
 
 def compose_response(state: Dict[str, Any]) -> str:
     """Compose response from workflow state.
 
     Formats colloquial Chinese response with all required sections.
-    Includes mandatory disclaimer + hotline tip per FR-044, FR-046.
+    Includes mandatory hotline tip per FR-044, FR-046 (disclaimer returned separately).
 
     Args:
         state: Current workflow state
@@ -91,11 +92,26 @@ def compose_response(state: Dict[str, Any]) -> str:
         # Weather alert
         weather = state.get("weather_alert")
         if weather:
-            response_parts.append(f"\n\n**🌤️ 天气提示**：{weather.get('summary')}")
-            weather_tips = weather.get("tips", [])
-            if weather_tips:
-                for tip in weather_tips:
-                    response_parts.append(f"\n- {tip}")
+            weather_parts = []
+            condition = weather.get("condition")
+            temp_c = weather.get("temp_c")
+            humidity = weather.get("humidity")
+            wind_speed_kmh = weather.get("wind_speed_kmh")
+            tip = weather.get("tip")
+
+            if condition:
+                weather_parts.append(condition)
+            if temp_c is not None:
+                weather_parts.append(f"{temp_c}°C")
+            if humidity is not None:
+                weather_parts.append(f"湿度{humidity}%")
+            if wind_speed_kmh is not None:
+                weather_parts.append(f"风速{wind_speed_kmh}km/h")
+
+            if weather_parts:
+                response_parts.append(f"\n\n**🌤️ 天气提示**：{'，'.join(weather_parts)}")
+            if tip:
+                response_parts.append(f"\n- {tip}")
 
     # Evidence (if available)
     evidence = state.get("evidence_selected")
@@ -104,11 +120,7 @@ def compose_response(state: Dict[str, Any]) -> str:
         for item in evidence[:5]:  # Max 5 for brevity
             response_parts.append(f"\n- {item.get('title')} ({item.get('year')})")
 
-    # Mandatory disclaimer
-    response_parts.append("\n\n---")
-    response_parts.append("\n**免责声明**：本建议仅供参考，不替代专业医疗诊断。")
-
     # Mandatory hotline tip
-    response_parts.append("\n**温馨提示**：如果你不确定症状严重程度，或者情况在变重，建议你也可以拨打当地医疗热线或直接拨打医院电话先确认。")
+    response_parts.append(f"\n\n**温馨提示**：{HOTLINE_TIP}")
 
     return "".join(response_parts)

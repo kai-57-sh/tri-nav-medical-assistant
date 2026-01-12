@@ -99,9 +99,9 @@ class NavigationResult(BaseModel):
         return v
 
     # === Route Planning ===
-    route_plan: RoutePlan = Field(
-        ...,
-        description="Route to top-ranked hospital (per FR-036)"
+    route_plan: Optional[RoutePlan] = Field(
+        default=None,
+        description="Route to top-ranked hospital (per FR-036, optional)"
     )
 
     class Config:
