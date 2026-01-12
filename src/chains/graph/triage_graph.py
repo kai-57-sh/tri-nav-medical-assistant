@@ -171,11 +171,13 @@ def build_graph() -> StateGraph:
     graph.add_edge("domain_classifier", "clarification_generator")
 
     # Clarification generator → conditional routing
+    # NOTE: When clarification is needed, we still go through reasoning_verifier
+    # to compose the response with questions. The path merges after navigator.
     graph.add_conditional_edges(
         "clarification_generator",
         _needs_clarification,
         {
-            True: "session_saver",  # Need clarification → save and return
+            True: "evidence_router",  # Need clarification → continue through workflow
             False: "evidence_router"  # No clarification → continue to evidence
         }
     )

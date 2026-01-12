@@ -3,14 +3,16 @@
 This module provides the FastAPI/LangServe entry point for the TriNav API.
 Exposes the triage workflow at POST /assistant/invoke.
 """
+import time
 from contextlib import asynccontextmanager
+
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.runnables import RunnableConfig
 from langserve import add_routes
-from langchain.schema.runnable import RunnableConfig
-import uvicorn
 
-from .config.settings import settings
+from .config.settings import get_settings
 from .chains.triage_chain import chain
 from .utils.logging_config import get_logger, set_correlation_id
 from .utils.metrics import (
@@ -18,8 +20,9 @@ from .utils.metrics import (
     request_duration,
     external_service_health,
 )
-import time
 
+# Get settings
+settings = get_settings()
 logger = get_logger(__name__)
 
 
@@ -183,9 +186,9 @@ def main():
     """Run the LangServe server."""
     uvicorn.run(
         "src.server:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
+        host=settings.server_host,
+        port=settings.server_port,
+        reload=False,  # No reload in production
         log_config=None,  # Use our custom logging
     )
 

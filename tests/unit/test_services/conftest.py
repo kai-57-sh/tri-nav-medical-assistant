@@ -60,12 +60,27 @@ def mock_amap_response():
     """Sample Amap API response."""
     return {
         "status": "1",
+        "info": "OK",
         "pois": [
             {
                 "id": "B000A7BD6C",
                 "name": "北京协和医院",
                 "distance": "1500",
                 "location": "116.4170,39.9139",
+                "typecode": "090100"
+            },
+            {
+                "id": "B000A7BD6D",
+                "name": "北京人民医院",
+                "distance": "2500",
+                "location": "116.4074,39.9042",
+                "typecode": "090100"
+            },
+            {
+                "id": "B000A7BD6E",
+                "name": "东城区社区医院",
+                "distance": "800",
+                "location": "116.4100,39.9100",
                 "typecode": "090100"
             }
         ]
@@ -87,16 +102,12 @@ def mock_ncbi_response():
 def mock_weather_response():
     """Sample weather API response."""
     return {
-        "main": {
-            "temp": 15.0,
-            "humidity": 65
-        },
-        "weather": [
-            {
-                "description": "阴"
-            }
-        ],
-        "wind": {
-            "speed": 3.5
+        "current": {
+            "temperature_2m": 15.0,
+            "apparent_temperature": 15.0,
+            "relative_humidity_2m": 65,
+            "weather_code": 3,
+            "wind_speed_10m": 3.5,
+            "wind_direction_10m": 180
         }
     }

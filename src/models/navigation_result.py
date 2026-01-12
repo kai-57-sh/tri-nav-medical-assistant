@@ -1,5 +1,5 @@
 """Navigation Result model for hospital recommendations and routes."""
-from typing import List, Dict, Any, Literal
+from typing import List, Dict, Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 

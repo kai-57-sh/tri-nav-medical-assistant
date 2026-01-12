@@ -310,7 +310,7 @@ async def test_weather_fetcher_success(minimal_state, mock_weather_service, mock
     state["gps_lat"] = sample_gps_coords["lat"]
     state["gps_lng"] = sample_gps_coords["lng"]
 
-    with patch("src.chains.nodes.weather_fetcher.get_weather_service", return_value=mock_weather_service):
+    with patch("src.chains.nodes.weather_fetcher.get_openmeteo_service", return_value=mock_weather_service):
         with patch("src.chains.nodes.weather_fetcher.get_redis_service", return_value=mock_redis_service):
             result = await weather_fetcher(state)
 
@@ -342,7 +342,7 @@ async def test_weather_fetcher_failure(minimal_state, sample_gps_coords, mock_re
     mock_weather = AsyncMock()
     mock_weather.get_weather = AsyncMock(side_effect=Exception("Weather API failed"))
 
-    with patch("src.chains.nodes.weather_fetcher.get_weather_service", return_value=mock_weather):
+    with patch("src.chains.nodes.weather_fetcher.get_openmeteo_service", return_value=mock_weather):
         with patch("src.chains.nodes.weather_fetcher.get_redis_service", return_value=mock_redis_service):
             result = await weather_fetcher(state)
 

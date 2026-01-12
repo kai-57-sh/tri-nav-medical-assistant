@@ -167,16 +167,18 @@ class TestLLMService:
         with patch('src.services.llm_service.ChatOpenAI') as mock_chat:
             mock_llm = AsyncMock()
             mock_response = MagicMock()
-            mock_response.content = '''[
-                "有发热吗？",
-                "症状持续多久了？",
-                "受过外伤吗？"
-            ]'''
+            mock_response.content = '''{
+                "questions": [
+                    "有发热吗？",
+                    "症状持续多久了？",
+                    "受过外伤吗？"
+                ]
+            }'''
             mock_llm.ainvoke = AsyncMock(return_value=mock_response)
             mock_chat.return_value = mock_llm
 
             service = LLMService()
-            service._triage = mock_llm
+            service._extractor = mock_llm
 
             result = await service.generate_clarification_questions(
                 {"body_part": "手臂", "symptoms": ["疼痛"]},
@@ -192,17 +194,17 @@ class TestLLMService:
         with patch('src.services.llm_service.ChatOpenAI') as mock_chat:
             mock_llm = AsyncMock()
             mock_response = MagicMock()
-            mock_response.content = '{"domain": "皮肤科"}'
+            mock_response.content = "dermatology"
             mock_llm.ainvoke = AsyncMock(return_value=mock_response)
             mock_chat.return_value = mock_llm
 
             service = LLMService()
-            service._triage = mock_llm
+            service._extractor = mock_llm
 
             result = await service.classify_domain({"body_part": "手臂", "symptoms": ["红疹"]})
 
             # Should classify domain
-            assert result == "皮肤科"
+            assert result == "dermatology"
 
 
 @pytest.mark.asyncio
@@ -212,8 +214,9 @@ async def test_get_llm_service_singleton():
         mock_instance = MagicMock()
         mock_service_class.return_value = mock_instance
 
-        service1 = get_llm_service()
-        service2 = get_llm_service()
+        with patch('src.services.llm_service._llm_service', None):
+            service1 = get_llm_service()
+            service2 = get_llm_service()
 
         # Should return same instance (cached)
         assert service1 is service2

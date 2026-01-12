@@ -1,7 +1,8 @@
 """Unit tests for Redis service."""
-import pytest
 import json
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from redis.exceptions import RedisError
 from src.services.redis_service import RedisService, get_redis_service
 
 
@@ -18,7 +19,8 @@ class TestRedisService:
             mock_redis_pool.get_connection.return_value = mock_redis
 
             service = RedisService()
-            service._redis = mock_redis
+            service.redis = mock_redis
+            service._healthy = True
 
             await service.save_session("test-123", sample_session_state, ttl=3600)
 
@@ -42,7 +44,8 @@ class TestRedisService:
             mock_redis_pool.get_connection.return_value = mock_redis
 
             service = RedisService()
-            service._redis = mock_redis
+            service.redis = mock_redis
+            service._healthy = True
 
             result = await service.load_session("test-123")
 
@@ -60,7 +63,8 @@ class TestRedisService:
             mock_redis_pool.get_connection.return_value = mock_redis
 
             service = RedisService()
-            service._redis = mock_redis
+            service.redis = mock_redis
+            service._healthy = True
 
             result = await service.load_session("nonexistent")
 
@@ -76,7 +80,8 @@ class TestRedisService:
             mock_redis_pool.get_connection.return_value = mock_redis
 
             service = RedisService()
-            service._redis = mock_redis
+            service.redis = mock_redis
+            service._healthy = True
 
             await service.delete_session("test-123")
 
@@ -92,14 +97,15 @@ class TestRedisService:
             mock_redis_pool.get_connection.return_value = mock_redis
 
             service = RedisService()
-            service._redis = mock_redis
+            service.redis = mock_redis
+            service._healthy = True
 
-            await service.cache_external_result("cache:key", sample_cache_result, ttl=1800)
+            await service.cache_external_result("test:key", sample_cache_result, ttl=1800)
 
             # Verify cache storage
             mock_redis.setex.assert_called_once()
             call_args = mock_redis.setex.call_args
-            assert call_args[0][0] == "cache:key"
+            assert call_args[0][0] == "cache:test:key"
             assert call_args[0][1] == 1800
             cached_data = json.loads(call_args[0][2])
             assert cached_data["hospitals"][0]["name"] == "Test Hospital"
@@ -113,9 +119,10 @@ class TestRedisService:
             mock_redis_pool.get_connection.return_value = mock_redis
 
             service = RedisService()
-            service._redis = mock_redis
+            service.redis = mock_redis
+            service._healthy = True
 
-            result = await service.load_cached_result("cache:key")
+            result = await service.load_cached_result("test:key")
 
             # Should return cached data
             assert result is not None
@@ -130,52 +137,49 @@ class TestRedisService:
             mock_redis_pool.get_connection.return_value = mock_redis
 
             service = RedisService()
-            service._redis = mock_redis
+            service.redis = mock_redis
+            service._healthy = True
 
-            result = await service.load_cached_result("cache:miss")
+            result = await service.load_cached_result("test:miss")
 
             # Should return None
             assert result is None
 
-    async def test_health_check_healthy(self, mock_redis_pool):
-        """Test health check returns True when Redis is healthy."""
+    async def test_connect_healthy(self, mock_redis_pool):
+        """Test connect marks Redis healthy when ping succeeds."""
         with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
             mock_pool_class.from_url.return_value = mock_redis_pool
             mock_redis = AsyncMock()
             mock_redis.ping = AsyncMock(return_value=True)
-            mock_redis_pool.get_connection.return_value = mock_redis
 
-            service = RedisService()
-            service._redis = mock_redis
+            with patch('src.services.redis_service.Redis', return_value=mock_redis):
+                service = RedisService()
+                await service.connect()
 
-            is_healthy = await service.check_health()
+        assert service.is_healthy is True
+        mock_redis.ping.assert_called_once()
 
-            # Should be healthy
-            assert is_healthy is True
-
-    async def test_health_check_unhealthy(self, mock_redis_pool):
-        """Test health check returns False when Redis is unhealthy."""
+    async def test_connect_unhealthy(self, mock_redis_pool):
+        """Test connect marks Redis unhealthy when ping fails."""
         with patch('src.services.redis_service.ConnectionPool') as mock_pool_class:
             mock_pool_class.from_url.return_value = mock_redis_pool
             mock_redis = AsyncMock()
-            mock_redis.ping = AsyncMock(side_effect=Exception("Connection lost"))
-            mock_redis_pool.get_connection.return_value = mock_redis
+            mock_redis.ping = AsyncMock(side_effect=RedisError("Connection lost"))
 
-            service = RedisService()
-            service._redis = mock_redis
+            with patch('src.services.redis_service.Redis', return_value=mock_redis):
+                service = RedisService()
+                await service.connect()
 
-            is_healthy = await service.check_health()
+        assert service.is_healthy is False
 
-            # Should be unhealthy
-            assert is_healthy is False
-
-    def test_is_healthy_property(self):
+    async def test_is_healthy_property(self):
         """Test is_healthy property reflects health status."""
         service = RedisService()
-        service._is_healthy = True
+        service.redis = MagicMock()
+        service._healthy = True
         assert service.is_healthy is True
 
-        service._is_healthy = False
+        service._healthy = False
         assert service.is_healthy is False
 
 
@@ -185,10 +189,12 @@ async def test_get_redis_service_singleton():
     with patch('src.services.redis_service.RedisService') as mock_service_class:
         mock_instance = MagicMock()
         mock_instance.is_healthy = True
+        mock_instance.connect = AsyncMock()
         mock_service_class.return_value = mock_instance
 
-        service1 = await get_redis_service()
-        service2 = await get_redis_service()
+        with patch('src.services.redis_service._redis_service', None):
+            service1 = await get_redis_service()
+            service2 = await get_redis_service()
 
         # Should return same instance (cached)
         assert service1 is service2

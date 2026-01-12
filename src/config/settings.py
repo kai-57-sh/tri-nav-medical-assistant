@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     # Server Configuration
     server_host: str = Field(default="0.0.0.0", description="Server host")
     server_port: int = Field(default=8000, description="Server port")
+    debug: bool = Field(default=False, description="Debug mode for development")
     log_level: str = Field(default="INFO", description="Log level")
 
     # Timeouts (seconds)

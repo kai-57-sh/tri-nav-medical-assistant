@@ -1,0 +1,6 @@
+prefix_rule(pattern=["pytest", "tests/integration/test_full_workflow.py", "-q"], decision="allow")
+prefix_rule(pattern=["pytest", "-q"], decision="allow")
+prefix_rule(pattern=["pytest", "tests/unit/test_nodes/test_input_validator.py", "tests/unit/test_nodes/test_evidence_navigation_nodes.py", "-q"], decision="allow")
+prefix_rule(pattern=["pytest", "tests/unit/test_services/test_external_services.py", "-q"], decision="allow")
+prefix_rule(pattern=["pytest", "tests/unit/test_services/test_llm_service.py", "-q"], decision="allow")
+prefix_rule(pattern=["pytest", "tests/unit/test_services/test_redis_service.py", "-q"], decision="allow")
