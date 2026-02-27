@@ -78,3 +78,16 @@ dmypy.json
 *.pid
 *.seed
 *.pid.lock
+
+# Claude Code / Codex
+.claude/
+.codex/
+
+# TriNav internal docs (not for remote)
+TriNav/.serena/
+TriNav/.specify/
+TriNav/spec-user.md
+TriNav/CLAUDE.md
+TriNav/AGENTS.md
+TriNav/E2E_TEST_SUMMARY.md
+TriNav/IMPLEMENTATION_STATUS.md
