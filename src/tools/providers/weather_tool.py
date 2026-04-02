@@ -1,5 +1,6 @@
 """Weather tool adapter for TriNav runtime."""
 
+import math
 from numbers import Real
 from typing import Any
 
@@ -17,6 +18,10 @@ def _validate_coordinate(payload: dict[str, Any], key: str, minimum: float, maxi
         )
 
     value_f = float(value)
+    if not math.isfinite(value_f):
+        raise ValueError(
+            f"payload['{key}'] must be a finite number in range [{minimum}, {maximum}]"
+        )
     if value_f < minimum or value_f > maximum:
         raise ValueError(
             f"payload['{key}'] out of range; expected [{minimum}, {maximum}], got {value_f}"

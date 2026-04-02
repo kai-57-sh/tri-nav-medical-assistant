@@ -1,5 +1,6 @@
 """Vision tool adapter for TriNav runtime."""
 
+import base64
 from typing import Any
 
 
@@ -7,7 +8,14 @@ def _validate_image_base64(payload: dict[str, Any]) -> str:
     image_base64 = payload.get("image_base64")
     if not isinstance(image_base64, str) or not image_base64.strip():
         raise ValueError("payload['image_base64'] must be a non-empty string")
-    return image_base64.strip()
+    image_base64_s = image_base64.strip()
+    padded_base64 = image_base64_s + ("=" * ((4 - len(image_base64_s) % 4) % 4))
+    try:
+        base64.b64decode(padded_base64, validate=True)
+    except Exception as exc:
+        raise ValueError("payload['image_base64'] must be valid base64 data") from exc
+
+    return image_base64_s
 
 
 def _validate_text(payload: dict[str, Any]) -> str | None:

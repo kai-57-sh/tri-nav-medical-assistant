@@ -57,7 +57,13 @@ class ToolRegistry:
 
         return self._tools.get(name)
 
-    async def invoke(self, name: str, payload: dict[str, Any]) -> ToolInvokeEnvelope:
+    async def invoke(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        *,
+        envelope: bool = False,
+    ) -> Any:
         """Invoke a tool by name with timeout protection and normalized errors."""
 
         spec = self.get(name)
@@ -66,10 +72,15 @@ class ToolRegistry:
 
         try:
             result = await asyncio.wait_for(spec.handler(payload), timeout=spec.timeout_s)
-            return {"tool": name, "ok": True, "result": result}
+            if not envelope:
+                return result
+            return self._build_envelope(name=name, result=result)
         except asyncio.CancelledError:
             raise
         except TimeoutError as exc:
             raise ToolTimeoutError(name, spec.timeout_s) from exc
         except Exception as exc:
             raise ToolInvocationError(name, str(exc)) from exc
+
+    def _build_envelope(self, name: str, result: Any) -> ToolInvokeEnvelope:
+        return {"tool": name, "ok": True, "result": result}

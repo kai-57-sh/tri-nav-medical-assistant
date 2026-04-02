@@ -11,7 +11,7 @@ from src.tools.registry.tool_spec import ToolSpec
 
 
 @pytest.mark.asyncio
-async def test_tool_registry_invoke_returns_envelope() -> None:
+async def test_tool_registry_invoke_default_returns_raw_result_for_compatibility() -> None:
     registry = ToolRegistry()
 
     async def ping_tool(payload: dict[str, object]) -> dict[str, object]:
@@ -20,6 +20,20 @@ async def test_tool_registry_invoke_returns_envelope() -> None:
     registry.register(ToolSpec(name="ping", handler=ping_tool, timeout_s=1.0))
 
     result = await registry.invoke("ping", {"ping": "ok"})
+
+    assert result == {"pong": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_tool_registry_invoke_returns_envelope_in_explicit_mode() -> None:
+    registry = ToolRegistry()
+
+    async def ping_tool(payload: dict[str, object]) -> dict[str, object]:
+        return {"pong": payload.get("ping")}
+
+    registry.register(ToolSpec(name="ping", handler=ping_tool, timeout_s=1.0))
+
+    result = await registry.invoke("ping", {"ping": "ok"}, envelope=True)
 
     assert result == {
         "tool": "ping",
@@ -48,9 +62,13 @@ async def test_weather_provider_valid_payload_calls_openmeteo_service() -> None:
     [
         ({}, "lat"),
         ({"lat": "31.2", "lng": 121.4}, "lat"),
+        ({"lat": float("nan"), "lng": 121.4}, "lat"),
+        ({"lat": float("inf"), "lng": 121.4}, "lat"),
         ({"lat": -91, "lng": 121.4}, "lat"),
         ({"lat": 31.2}, "lng"),
         ({"lat": 31.2, "lng": "121.4"}, "lng"),
+        ({"lat": 31.2, "lng": float("nan")}, "lng"),
+        ({"lat": 31.2, "lng": float("-inf")}, "lng"),
         ({"lat": 31.2, "lng": 181}, "lng"),
     ],
 )
@@ -100,6 +118,7 @@ async def test_vision_provider_accepts_optional_text() -> None:
         ({"image_base64": ""}, "image_base64"),
         ({"image_base64": "   "}, "image_base64"),
         ({"image_base64": 123}, "image_base64"),
+        ({"image_base64": "not-base64!!"}, "image_base64"),
         ({"image_base64": "ok", "text": 1}, "text"),
     ],
 )

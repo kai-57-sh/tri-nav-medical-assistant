@@ -27,7 +27,7 @@ async def test_register_and_invoke_async_tool() -> None:
 
     result = await registry.invoke("ping", {"ping": "ok"})
 
-    assert result == {"tool": "ping", "ok": True, "result": {"pong": "ok"}}
+    assert result == {"pong": "ok"}
 
 
 def test_register_duplicate_name_raises_value_error() -> None:
