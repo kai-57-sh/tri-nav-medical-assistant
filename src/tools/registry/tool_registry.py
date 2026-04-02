@@ -6,6 +6,38 @@ from typing import Any
 from src.tools.registry.tool_spec import ToolSpec
 
 
+class ToolRegistryError(Exception):
+    """Base exception for tool registry invocation failures."""
+
+
+class ToolNotFoundError(ToolRegistryError):
+    """Raised when invoke is called with an unknown tool name."""
+
+    def __init__(self, tool_name: str) -> None:
+        self.tool_name = tool_name
+        super().__init__(f"Tool '{tool_name}' is not registered")
+
+
+class ToolTimeoutError(ToolRegistryError):
+    """Raised when a tool invocation exceeds configured timeout."""
+
+    def __init__(self, tool_name: str, timeout_s: float) -> None:
+        self.tool_name = tool_name
+        self.timeout_s = timeout_s
+        super().__init__(
+            f"Tool '{tool_name}' timed out after {timeout_s:.3f}s. "
+            "Increase timeout_s or optimize the tool handler."
+        )
+
+
+class ToolInvocationError(ToolRegistryError):
+    """Raised when a tool handler fails during invocation."""
+
+    def __init__(self, tool_name: str, message: str) -> None:
+        self.tool_name = tool_name
+        super().__init__(f"Tool '{tool_name}' invocation failed: {message}")
+
+
 class ToolRegistry:
     """Registers tools and invokes them by name."""
 
@@ -26,10 +58,17 @@ class ToolRegistry:
         return self._tools.get(name)
 
     async def invoke(self, name: str, payload: dict[str, Any]) -> Any:
-        """Invoke a tool by name with timeout protection."""
+        """Invoke a tool by name with timeout protection and normalized errors."""
 
         spec = self.get(name)
         if spec is None:
-            raise KeyError(f"Tool '{name}' is not registered")
+            raise ToolNotFoundError(name)
 
-        return await asyncio.wait_for(spec.handler(payload), timeout=spec.timeout_s)
+        try:
+            return await asyncio.wait_for(spec.handler(payload), timeout=spec.timeout_s)
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError as exc:
+            raise ToolTimeoutError(name, spec.timeout_s) from exc
+        except Exception as exc:
+            raise ToolInvocationError(name, str(exc)) from exc
