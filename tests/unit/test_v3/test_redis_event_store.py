@@ -235,6 +235,18 @@ async def test_redis_event_store_uses_eval_for_atomic_lock_release() -> None:
 
 
 @pytest.mark.asyncio
+async def test_redis_event_store_skips_non_atomic_unlock_when_eval_unavailable() -> None:
+    fake = _LegacyMigrationRedisService()
+    fake.redis.eval_supported = False
+    fake.redis.set_string("cache:events:sess-1", '{"events":[{"event_type":"legacy"}]}')
+    store = RedisEventStore(fake)
+
+    await store.append("sess-1", {"event_type": "capability_completed", "id": "new-b"})
+
+    assert "lock:events:migrate:sess-1" not in fake.redis.get_calls
+
+
+@pytest.mark.asyncio
 async def test_redis_event_store_migration_is_concurrency_safe() -> None:
     fake = _ContendedLegacyMigrationRedisService()
     fake.redis.set_string("cache:events:sess-1", '{"events":[{"event_type":"legacy"}]}')

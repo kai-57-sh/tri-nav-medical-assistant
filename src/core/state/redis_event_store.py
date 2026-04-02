@@ -166,31 +166,14 @@ class RedisEventStore:
         self, redis_client: Any, lock_key: str, lock_token: str
     ) -> None:
         lock_eval = getattr(redis_client, "eval", None)
-        if callable(lock_eval):
-            try:
-                await lock_eval(self._LOCK_RELEASE_CAS_LUA, 1, lock_key, lock_token)
-                return
-            except (RedisError, RuntimeError, AttributeError, TypeError):
-                # Graceful fallback when eval is unavailable/unsupported.
-                pass
-
-        lock_get = getattr(redis_client, "get", None)
-        lock_delete = getattr(redis_client, "delete", None)
-        if not callable(lock_delete):
-            return
-
-        if not callable(lock_get):
-            try:
-                await lock_delete(lock_key)
-            except (RedisError, RuntimeError, AttributeError, TypeError):
-                return
+        if not callable(lock_eval):
+            # Avoid non-atomic get+delete unlock; rely on lock TTL expiry.
             return
 
         try:
-            current_lock_value = await lock_get(lock_key)
-            if current_lock_value == lock_token:
-                await lock_delete(lock_key)
+            await lock_eval(self._LOCK_RELEASE_CAS_LUA, 1, lock_key, lock_token)
         except (RedisError, RuntimeError, AttributeError, TypeError):
+            # If CAS unlock fails, keep safety by waiting for TTL expiry.
             return
 
     async def _retry_append_after_migration(
