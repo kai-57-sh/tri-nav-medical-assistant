@@ -230,6 +230,49 @@ async def _run_v3_capability_task(
     }
 
 
+def _enrich_v3_task_context(
+    context: ExecutionContext,
+    *,
+    task_name: str,
+    task_payload: dict[str, Any],
+) -> ExecutionContext:
+    metadata = dict(context.metadata)
+    payload = task_payload.get("payload")
+    if not isinstance(payload, dict):
+        return context
+
+    if task_name == "consultation":
+        summary = payload.get("summary")
+        if isinstance(summary, str) and summary:
+            metadata["consultation_summary"] = summary
+    elif task_name == "triage":
+        triage_level = payload.get("triage_level")
+        if isinstance(triage_level, str) and triage_level:
+            metadata["triage_level"] = triage_level
+        triage_reason = payload.get("triage_reason")
+        if isinstance(triage_reason, str) and triage_reason:
+            metadata["triage_reason"] = triage_reason
+        recommended_departments = payload.get("recommended_departments")
+        if isinstance(recommended_departments, list):
+            metadata["recommended_departments"] = recommended_departments
+        red_flags = payload.get("red_flags")
+        if isinstance(red_flags, list):
+            metadata["red_flags"] = red_flags
+    elif task_name == "evidence":
+        evidence_selected = payload.get("evidence_selected")
+        if isinstance(evidence_selected, list):
+            metadata["evidence_selected"] = evidence_selected
+    elif task_name == "navigation":
+        navigation_result = payload.get("navigation_result")
+        if isinstance(navigation_result, dict):
+            metadata["navigation_result"] = navigation_result
+        weather_alert = payload.get("weather_alert")
+        if isinstance(weather_alert, dict):
+            metadata["weather_alert"] = weather_alert
+
+    return context.model_copy(update={"metadata": metadata})
+
+
 async def _invoke_v3_task_coordinator(
     payload: AssistantV2InvokePayload,
     *,
@@ -266,31 +309,43 @@ async def _invoke_v3_task_coordinator(
     navigation = NavigationCapability()
     response = ResponseCapability()
 
+    task_context = context
+
+    async def _run_task_with_enriched_context(task_name: str, capability: Any) -> dict[str, Any]:
+        nonlocal task_context
+        task_payload = await _run_v3_capability_task(capability, task_context)
+        task_context = _enrich_v3_task_context(
+            task_context,
+            task_name=task_name,
+            task_payload=task_payload,
+        )
+        return task_payload
+
     task_specs = [
         TaskSpec(
             name=consultation.name,
             required=True,
-            runner=lambda ctx, cap=consultation: _run_v3_capability_task(cap, ctx),
+            runner=lambda _ctx, name=consultation.name, cap=consultation: _run_task_with_enriched_context(name, cap),
         ),
         TaskSpec(
             name=triage.name,
             required=True,
-            runner=lambda ctx, cap=triage: _run_v3_capability_task(cap, ctx),
+            runner=lambda _ctx, name=triage.name, cap=triage: _run_task_with_enriched_context(name, cap),
         ),
         TaskSpec(
             name=evidence.name,
             required=False,
-            runner=lambda ctx, cap=evidence: _run_v3_capability_task(cap, ctx),
+            runner=lambda _ctx, name=evidence.name, cap=evidence: _run_task_with_enriched_context(name, cap),
         ),
         TaskSpec(
             name=navigation.name,
             required=False,
-            runner=lambda ctx, cap=navigation: _run_v3_capability_task(cap, ctx),
+            runner=lambda _ctx, name=navigation.name, cap=navigation: _run_task_with_enriched_context(name, cap),
         ),
         TaskSpec(
             name=response.name,
             required=True,
-            runner=lambda ctx, cap=response: _run_v3_capability_task(cap, ctx),
+            runner=lambda _ctx, name=response.name, cap=response: _run_task_with_enriched_context(name, cap),
         ),
     ]
     task_results = await TaskCoordinator(task_specs).run(context)
@@ -328,7 +383,7 @@ async def _invoke_v3_task_coordinator(
             )
         )
 
-    capability_results = await plugin_registry.apply_after_execute(context, capability_results)
+    capability_results = await plugin_registry.apply_after_execute(task_context, capability_results)
     primary = next((item for item in capability_results if item.name == "response"), None)
     if primary is None and capability_results:
         primary = capability_results[-1]

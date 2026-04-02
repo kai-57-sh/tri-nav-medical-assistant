@@ -240,6 +240,125 @@ def test_assistant_v3_task_coordinator_applies_medical_guard(
     assert "建议尽快就医" in data["response"]
 
 
+def test_assistant_v3_task_coordinator_propagates_triage_metadata_to_followup_tasks(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Coordinator should pass triage outputs to follow-up capabilities via context metadata."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.assistant_v2.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_builtin_plugins_enabled=False,
+            v3_plugin_trace_enabled=True,
+            v3_plugin_medical_footer_enabled=True,
+        ),
+    )
+
+    captured: dict[str, str] = {}
+
+    async def fake_consultation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="consultation",
+            success=True,
+            payload={"status": "ok", "summary": "mock summary"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_triage_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="triage",
+            success=True,
+            payload={
+                "status": "ok",
+                "triage_level": "SELF_CARE",
+                "triage_reason": "症状偏轻，建议居家观察",
+                "recommended_departments": ["全科"],
+                "red_flags": ["若症状加重请及时就医"],
+            },
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_evidence_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="evidence",
+            success=True,
+            payload={"status": "ok", "evidence_signal": "evidence_pending", "evidence_selected": []},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_navigation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, plan)
+        captured["navigation_triage_level"] = str(context.metadata.get("triage_level"))
+        return CapabilityResult(
+            name="navigation",
+            success=True,
+            payload={"status": "ok", "navigation_signal": "routing_unavailable"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_response_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, plan)
+        captured["response_triage_level"] = str(context.metadata.get("triage_level"))
+        return CapabilityResult(
+            name="response",
+            success=True,
+            payload={
+                "status": "final",
+                "response": f"triage={context.metadata.get('triage_level')}",
+            },
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "src.capabilities.consultation.capability.ConsultationCapability.run",
+        fake_consultation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.triage.capability.TriageCapability.run",
+        fake_triage_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.evidence.capability.EvidenceCapability.run",
+        fake_evidence_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.navigation.capability.NavigationCapability.run",
+        fake_navigation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.response.capability.ResponseCapability.run",
+        fake_response_run,
+    )
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-prop-1",
+            "session_id": "sess-v3-prop-1",
+            "trace_id": "trace-v3-prop-1",
+            "text": "症状轻微，已好转",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert captured["navigation_triage_level"] == "SELF_CARE"
+    assert captured["response_triage_level"] == "SELF_CARE"
+    data = response.json()
+    assert data["triage_level"] == "SELF_CARE"
+    assert "triage=SELF_CARE" in data["response"]
+
+
 @pytest.mark.asyncio
 async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
     monkeypatch: pytest.MonkeyPatch,
