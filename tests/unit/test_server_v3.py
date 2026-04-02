@@ -1,15 +1,19 @@
 """Tests for assistant v3 invoke route."""
 
+import json
 import os
 from types import SimpleNamespace
 from uuid import UUID
 
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 import pytest
 
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
+from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload
+from src.interfaces.api.assistant_v3 import invoke_assistant_v3
 from src.server import app
 
 
@@ -235,3 +239,38 @@ def test_assistant_v3_task_coordinator_applies_medical_guard(
     assert "别去医院" not in data["response"]
     assert "疑似" in data["response"]
     assert "建议尽快就医" in data["response"]
+
+
+@pytest.mark.asyncio
+async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V3 invoke should only inject runtime_mode and delegate to v2 invoke."""
+
+    observed_payload: AssistantV2InvokePayload | None = None
+
+    async def fake_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
+        nonlocal observed_payload
+        observed_payload = payload
+        return JSONResponse({"status": "final", "response": "delegated"})
+
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_assistant_v2", fake_invoke)
+
+    original_payload = AssistantV2InvokePayload(
+        request_id="req-adapter-v3",
+        session_id="sess-adapter-v3",
+        trace_id="trace-adapter-v3",
+        text="咳嗽",
+        metadata={"runtime_mode": "legacy", "foo": "bar"},
+    )
+
+    response = await invoke_assistant_v3(original_payload)
+
+    assert observed_payload is not None
+    assert observed_payload is not original_payload
+    assert observed_payload.metadata["runtime_mode"] == "v3"
+    assert observed_payload.metadata["foo"] == "bar"
+    assert original_payload.metadata["runtime_mode"] == "legacy"
+    assert original_payload.metadata["foo"] == "bar"
+    assert response.status_code == 200
+    assert json.loads(response.body) == {"status": "final", "response": "delegated"}

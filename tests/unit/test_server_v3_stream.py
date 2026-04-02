@@ -5,12 +5,15 @@ import os
 from pathlib import Path
 from typing import Any
 
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 import pytest
 
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
+from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload
+from src.interfaces.api.assistant_v3 import stream_assistant_v3
 from src.server import app
 
 
@@ -167,3 +170,43 @@ def test_assistant_v3_stream_contract_doc_mentions_http_200_error_parity() -> No
     root = Path(__file__).resolve().parents[2]
     doc_text = (root / "docs" / "frontend_contract" / "events_v3.md").read_text(encoding="utf-8")
     assert "HTTP status remains 200" in doc_text
+
+
+@pytest.mark.asyncio
+async def test_assistant_v3_stream_sets_runtime_mode_and_calls_v2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V3 stream should only inject runtime_mode and delegate to v2 stream."""
+
+    observed_payload: AssistantV2InvokePayload | None = None
+
+    async def fake_stream(payload: AssistantV2InvokePayload) -> StreamingResponse:
+        nonlocal observed_payload
+        observed_payload = payload
+
+        async def _events() -> Any:
+            yield b"event: status\ndata: {}\n\n"
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(_events(), media_type="text/event-stream")
+
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.stream_assistant_v2", fake_stream)
+
+    original_payload = AssistantV2InvokePayload(
+        request_id="req-adapter-v3-stream",
+        session_id="sess-adapter-v3-stream",
+        trace_id="trace-adapter-v3-stream",
+        text="头晕",
+        metadata={"runtime_mode": "legacy", "foo": "bar"},
+    )
+
+    response = await stream_assistant_v3(original_payload)
+
+    assert observed_payload is not None
+    assert observed_payload is not original_payload
+    assert observed_payload.metadata["runtime_mode"] == "v3"
+    assert observed_payload.metadata["foo"] == "bar"
+    assert original_payload.metadata["runtime_mode"] == "legacy"
+    assert original_payload.metadata["foo"] == "bar"
+    assert response.status_code == 200
+    assert response.media_type == "text/event-stream"
