@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config.settings import get_settings
-from src.core.coordinator.runtime_coordinator import RuntimeCoordinator
 from src.core.coordinator.task_coordinator import TaskCoordinator, TaskSpec
 from src.core.plugins.builtin import create_builtin_plugins
 from src.core.plugins.registry import RuntimePluginRegistry
@@ -21,6 +20,11 @@ from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult
 from src.core.state.event_store import InMemoryEventStore
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
+from src.platform.runtime.kernel import (
+    RuntimeKernel,
+    RuntimeKernelInvokeError,
+    build_runtime_kernel as _build_runtime_kernel,
+)
 from src.policy.safety.medical_guard import enforce_output_guard
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
@@ -133,6 +137,15 @@ def _build_runtime_plugin_registry() -> RuntimePluginRegistry:
     ):
         registry.register(plugin)
     return registry
+
+
+def build_runtime_kernel() -> RuntimeKernel:
+    """Build runtime kernel used by assistant_v2 invoke path."""
+
+    return _build_runtime_kernel(
+        event_store=_RUNTIME_EVENT_STORE,
+        plugins=_build_runtime_plugin_registry(),
+    )
 
 
 def _is_v3_task_runtime(payload: AssistantV2InvokePayload) -> bool:
@@ -575,10 +588,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             )
 
     try:
-        from src.capabilities.legacy_triage.capability import LegacyTriageCapability
-        from src.core.runtime.event_bus import EventBus
-        from src.core.runtime.execution_context import ExecutionContext
-        from src.core.runtime.query_engine import QueryEngine
+        kernel = build_runtime_kernel()
     except Exception as exc:  # pragma: no cover - defensive import guard
         return _error_response(
             session_id=session_id,
@@ -593,35 +603,35 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             },
         )
 
-    event_bus: Any = None
     try:
-        context_metadata = dict(payload.metadata)
-        context_metadata["trace_id"] = trace_id
-        context = ExecutionContext(
+        kernel_result = await kernel.invoke(
+            payload=payload,
             request_id=request_id,
             session_id=session_id,
-            text=payload.text,
-            image_base64=payload.image_base64,
-            gps_lat=payload.gps_lat,
-            gps_lng=payload.gps_lng,
-            metadata=context_metadata,
+            trace_id=trace_id,
         )
-        event_bus = EventBus()
-        engine = QueryEngine(
-            [LegacyTriageCapability()],
-            event_bus=event_bus,
-            event_store=_RUNTIME_EVENT_STORE,
-        )
-        coordinator = RuntimeCoordinator(engine=engine, plugins=_build_runtime_plugin_registry())
-        results = await coordinator.run(context)
-    except Exception as exc:
-        runtime_events = [] if event_bus is None else event_bus.dump()
+    except RuntimeKernelInvokeError as exc:
+        error = exc.error
         return _error_response(
             session_id=session_id,
             request_id=request_id,
             trace_id=trace_id,
             message="assistant_v2_runtime_failed",
-            runtime_events=runtime_events,
+            runtime_events=exc.runtime_events,
+            trace={
+                "request_id": request_id,
+                "error_stage": "invoke",
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+            },
+        )
+    except Exception as exc:
+        return _error_response(
+            session_id=session_id,
+            request_id=request_id,
+            trace_id=trace_id,
+            message="assistant_v2_runtime_failed",
+            runtime_events=[],
             trace={
                 "request_id": request_id,
                 "error_stage": "invoke",
@@ -630,7 +640,8 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             },
         )
 
-    runtime_events = event_bus.dump()
+    results = kernel_result.results
+    runtime_events = kernel_result.runtime_events
     if not results:
         return _error_response(
             session_id=session_id,
