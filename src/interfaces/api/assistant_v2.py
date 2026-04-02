@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from copy import deepcopy
 from typing import Any
 from uuid import uuid4
 
@@ -12,10 +13,12 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.state.event_store import InMemoryEventStore
+from src.core.state.session_snapshot_store import InMemorySnapshotStore
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
 _ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
 _RUNTIME_EVENT_STORE = InMemoryEventStore()
+_RUNTIME_SNAPSHOT_STORE = InMemorySnapshotStore()
 
 
 class AssistantV2InvokePayload(BaseModel):
@@ -33,6 +36,59 @@ class AssistantV2InvokePayload(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+def _copy_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return deepcopy(value)
+    return {}
+
+
+def _copy_events(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [deepcopy(item) for item in value if isinstance(item, dict)]
+
+
+def _persist_runtime_snapshot(
+    *,
+    request_id: str,
+    session_id: str,
+    trace_id: str,
+    status: str,
+    response: str,
+    runtime_events: list[dict[str, Any]],
+    provenance: dict[str, Any],
+    trace: dict[str, Any],
+    error_message: str | None = None,
+) -> None:
+    snapshot = {
+        "request_id": request_id,
+        "session_id": session_id,
+        "trace_id": trace_id,
+        "status": status,
+        "response": response,
+        "runtime_events": _copy_events(runtime_events),
+        "provenance": _copy_dict(provenance),
+        "trace": _copy_dict(trace),
+    }
+    if error_message is not None:
+        snapshot["error_message"] = error_message
+    _RUNTIME_SNAPSHOT_STORE.upsert(session_id, snapshot)
+
+
+def get_runtime_session_state(session_id: str) -> dict[str, Any]:
+    """Expose runtime replay data for one session."""
+
+    snapshot = _RUNTIME_SNAPSHOT_STORE.load(session_id)
+    runtime_events = _RUNTIME_EVENT_STORE.list(session_id)
+    if not runtime_events and isinstance(snapshot, dict):
+        runtime_events = _copy_events(snapshot.get("runtime_events"))
+    return {
+        "session_id": session_id,
+        "snapshot": snapshot,
+        "runtime_events": runtime_events,
+    }
+
+
 def _error_response(
     *,
     session_id: str,
@@ -45,19 +101,28 @@ def _error_response(
 ) -> JSONResponse:
     """Build a structured runtime error response."""
 
-    return JSONResponse(
-        status_code=503,
-        content={
-            "status": "error",
-            "session_id": session_id,
-            "trace_id": trace_id,
-            "response": "",
-            "runtime_events": runtime_events or [],
-            "provenance": provenance or {"source": "assistant_v2"},
-            "trace": trace or {"request_id": request_id, "error_message": message},
-            "error_message": message,
-        },
+    content = {
+        "status": "error",
+        "session_id": session_id,
+        "trace_id": trace_id,
+        "response": "",
+        "runtime_events": runtime_events or [],
+        "provenance": provenance or {"source": "assistant_v2"},
+        "trace": trace or {"request_id": request_id, "error_message": message},
+        "error_message": message,
+    }
+    _persist_runtime_snapshot(
+        request_id=request_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        status="error",
+        response="",
+        runtime_events=content["runtime_events"],
+        provenance=content["provenance"],
+        trace=content["trace"],
+        error_message=message,
     )
+    return JSONResponse(status_code=503, content=content)
 
 
 def _normalize_status(runtime_status: Any) -> str:
@@ -237,10 +302,31 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     }
 
     if primary.success and response_status in {"final", "need_more_info"}:
+        _persist_runtime_snapshot(
+            request_id=request_id,
+            session_id=body["session_id"],
+            trace_id=trace_id,
+            status=response_status,
+            response=body["response"],
+            runtime_events=body["runtime_events"],
+            provenance=body["provenance"],
+            trace=body["trace"],
+        )
         return JSONResponse(status_code=200, content=body)
 
     message = error_message if isinstance(error_message, str) else "; ".join(primary.errors)
     body["error_message"] = message or "assistant_v2_runtime_failed"
+    _persist_runtime_snapshot(
+        request_id=request_id,
+        session_id=body["session_id"],
+        trace_id=trace_id,
+        status="error",
+        response=body["response"],
+        runtime_events=body["runtime_events"],
+        provenance=body["provenance"],
+        trace=body["trace"],
+        error_message=body["error_message"],
+    )
     return JSONResponse(status_code=503, content=body)
 
 
