@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
+_ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
 
 
 class AssistantV2InvokePayload(BaseModel):
@@ -49,6 +50,14 @@ def _error_response(
             "error_message": message,
         },
     )
+
+
+def _normalize_status(runtime_status: Any) -> str:
+    """Normalize runtime status to the public assistant-v2 contract."""
+
+    if isinstance(runtime_status, str) and runtime_status in _ALLOWED_STATUSES:
+        return runtime_status
+    return "error"
 
 
 @router.post("/invoke")
@@ -118,7 +127,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     primary = results[0]
     output_payload = primary.payload if isinstance(primary.payload, dict) else {}
     runtime_status = output_payload.get("status")
-    response_status = runtime_status if isinstance(runtime_status, str) else ("ok" if primary.success else "error")
+    response_status = _normalize_status(runtime_status)
     response_text = output_payload.get("response")
     resolved_session_id = output_payload.get("session_id")
     error_message = output_payload.get("error_message")
@@ -137,7 +146,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
         },
     }
 
-    if primary.success and response_status != "error":
+    if primary.success and response_status in {"final", "need_more_info"}:
         return JSONResponse(status_code=200, content=body)
 
     message = error_message if isinstance(error_message, str) else "; ".join(primary.errors)

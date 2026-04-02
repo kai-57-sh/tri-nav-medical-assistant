@@ -91,7 +91,8 @@ try:
 
     app.include_router(assistant_v2_router)
 except Exception as exc:  # pragma: no cover - defensive import guard
-    logger.warning("assistant_v2 router registration skipped: %s", exc)
+    logger.exception("assistant_v2 router registration failed")
+    raise
 
 
 @app.get("/health")
