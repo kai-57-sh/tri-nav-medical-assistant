@@ -1,0 +1,181 @@
+"""Tests for v3 real medical capabilities (non-stub pipeline)."""
+
+import os
+
+import pytest
+
+os.environ.setdefault("QWEN_API_KEY", "test-key")
+
+from src.capabilities import (
+    ConsultationCapability,
+    EvidenceCapability,
+    NavigationCapability,
+    ResponseCapability,
+    TriageCapability,
+)
+from src.core.runtime.execution_context import ExecutionContext
+
+
+SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
+
+
+def _build_context(*, text: str = "持续头痛并伴有轻微发热") -> ExecutionContext:
+    return ExecutionContext(
+        request_id="req-v3-real-1",
+        session_id="sess-v3-real-1",
+        text=text,
+        metadata={"age": 32},
+    )
+
+
+@pytest.mark.asyncio
+async def test_triage_emergency_like_text_not_constant_routine() -> None:
+    capability = TriageCapability()
+    context = _build_context(text="胸痛并呼吸困难，伴有明显出汗")
+
+    result = await capability.run(context, await capability.plan(context))
+
+    assert result.success is True
+    assert result.payload["status"] == "ok"
+    assert result.payload["triage_level"] in {"EMERGENCY", "URGENT"}
+    assert result.payload["triage_level"] != "ROUTINE"
+
+
+@pytest.mark.asyncio
+async def test_capabilities_are_no_longer_marked_as_v3_stub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_clinical_extractor(state):
+        return {
+            **state,
+            "symptom_schema": {
+                "body_part": "头部",
+                "symptoms": ["头痛"],
+                "duration": "2天",
+                "severity": "轻微",
+                "accompanying_symptoms": [],
+            },
+        }
+
+    async def fake_red_flag_detector(state):
+        return {
+            **state,
+            "rule_triage_level": None,
+            "red_flags_hit": [],
+            "recommended_departments": [],
+            "triage_reason": "",
+        }
+
+    async def fake_triage_classifier(state):
+        return {
+            **state,
+            "llm_triage_level": "ROUTINE",
+            "llm_triage_reason": "症状相对稳定，建议常规就诊",
+            "llm_recommended_departments": ["内科"],
+            "llm_possible_causes": ["上呼吸道感染（疑似）"],
+            "llm_self_care_tips": ["补水休息"],
+            "llm_red_flags": [],
+        }
+
+    async def fake_triage_merger(state):
+        return {
+            **state,
+            "triage_level": "ROUTINE",
+            "triage_source": "llm",
+            "recommended_departments": ["内科"],
+            "possible_causes": ["上呼吸道感染（疑似）"],
+            "self_care_tips": ["补水休息"],
+            "red_flags": [],
+            "triage_reason": "症状相对稳定，建议常规就诊",
+        }
+
+    async def fake_ncbi_query_builder(state):
+        return {**state, "ncbi_query": '"head" AND "headache" AND 2016:3000[dpcr]'}
+
+    async def fake_ncbi_retriever_tool(state):
+        return {
+            **state,
+            "evidence_selected": [
+                {"pmid": "1", "title": "Mock Article", "year": "2024", "type": "Review"}
+            ],
+        }
+
+    async def fake_navigator(state):
+        return {
+            **state,
+            "navigation_result": {
+                "radius_km": 10,
+                "hospitals": [{"rank": 1, "name": "示例医院", "reason": "距离较近"}],
+                "route_plan": None,
+            },
+        }
+
+    async def fake_weather_fetcher(state):
+        return {
+            **state,
+            "weather_alert": {
+                "condition": "晴",
+                "temp_c": 26,
+                "humidity": 40,
+                "wind_speed_kmh": 8,
+                "tip": "注意补水",
+            },
+        }
+
+    async def fake_reasoning_verifier(state):
+        return {
+            **state,
+            "final_response": "建议常规门诊就诊，并观察症状变化。",
+            "status": "final",
+        }
+
+    monkeypatch.setattr(
+        "src.capabilities.consultation.capability.clinical_extractor",
+        fake_clinical_extractor,
+    )
+    monkeypatch.setattr("src.capabilities.triage.capability.red_flag_detector", fake_red_flag_detector)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_classifier", fake_triage_classifier)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_merger", fake_triage_merger)
+    monkeypatch.setattr("src.capabilities.evidence.capability.ncbi_query_builder", fake_ncbi_query_builder)
+    monkeypatch.setattr("src.capabilities.evidence.capability.ncbi_retriever_tool", fake_ncbi_retriever_tool)
+    monkeypatch.setattr("src.capabilities.navigation.capability.navigator", fake_navigator)
+    monkeypatch.setattr("src.capabilities.navigation.capability.weather_fetcher", fake_weather_fetcher)
+    monkeypatch.setattr("src.capabilities.response.capability.reasoning_verifier", fake_reasoning_verifier)
+
+    context = _build_context()
+    capabilities = [
+        ConsultationCapability(),
+        TriageCapability(),
+        EvidenceCapability(),
+        NavigationCapability(),
+        ResponseCapability(),
+    ]
+
+    for capability in capabilities:
+        result = await capability.run(context, await capability.plan(context))
+        assert result.success is True
+        assert result.provenance.get("source") != "v3_stub"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("capability", "expected_status"),
+    [
+        (ConsultationCapability(), "degraded"),
+        (TriageCapability(), "degraded"),
+        (EvidenceCapability(), "degraded"),
+        (NavigationCapability(), "degraded"),
+        (ResponseCapability(), "error"),
+    ],
+)
+async def test_capability_fallbacks_expose_safe_busy_message(
+    capability: object,
+    expected_status: str,
+) -> None:
+    context = _build_context()
+
+    result = await capability.fallback(context, reason="simulated_failure")  # type: ignore[attr-defined]
+
+    assert result.success is False
+    assert result.payload["status"] == expected_status
+    assert SAFE_BUSY_MESSAGE in str(result.payload.get("message", ""))

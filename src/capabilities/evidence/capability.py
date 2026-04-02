@@ -1,11 +1,61 @@
 """Evidence capability for TriNav v3."""
 
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
 
+_SOURCE = "v3_medical_pipeline"
+_SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
+_NODE_TIMEOUT_SECONDS = 0.35
+
+
+async def ncbi_query_builder(state: dict[str, Any]) -> dict[str, Any]:
+    from src.chains.nodes.ncbi_query_builder import ncbi_query_builder as _ncbi_query_builder
+
+    return await _ncbi_query_builder(state)
+
+
+async def ncbi_retriever_tool(state: dict[str, Any]) -> dict[str, Any]:
+    from src.chains.nodes.ncbi_retriever_tool import ncbi_retriever_tool as _ncbi_retriever_tool
+
+    return await _ncbi_retriever_tool(state)
+
+
+def _extract_symptom_schema_heuristic(text: str) -> dict[str, Any]:
+    body_part = "未知"
+    if any(token in text for token in ("胸", "胸口", "胸部")):
+        body_part = "胸口"
+    elif any(token in text for token in ("头", "头部")):
+        body_part = "头部"
+    elif any(token in text for token in ("腹", "肚子", "胃")):
+        body_part = "腹部"
+
+    symptoms: list[str] = []
+    if any(token in text for token in ("痛", "疼")):
+        symptoms.append("疼痛")
+    if "咳嗽" in text:
+        symptoms.append("咳嗽")
+    if any(token in text for token in ("发热", "发烧")):
+        symptoms.append("发烧")
+    if not symptoms:
+        symptoms.append(text[:20])
+
+    return {
+        "body_part": body_part,
+        "symptoms": symptoms,
+        "duration": None,
+        "severity": "中度",
+        "accompanying_symptoms": [],
+        "onset": None,
+    }
+
 
 class EvidenceCapability:
-    """Emit deterministic evidence collection signals."""
+    """Collect supporting evidence via NCBI query builder + retriever nodes."""
 
     name = "evidence"
     version = "v3"
@@ -20,16 +70,51 @@ class EvidenceCapability:
         plan: dict[str, JSONValue] | None = None,
     ) -> CapabilityResult:
         _ = plan
+        base_state: dict[str, Any] = {
+            "session_id": context.session_id,
+            "text": context.text,
+            "symptom_schema": _extract_symptom_schema_heuristic(context.text),
+            "case_domain": None,
+        }
+
+        try:
+            query_state = await asyncio.wait_for(
+                ncbi_query_builder(base_state),
+                timeout=_NODE_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            query_state = {**base_state, "ncbi_query": ""}
+
+        query_raw = query_state.get("ncbi_query")
+        query = query_raw if isinstance(query_raw, str) else ""
+
+        retrieval_state = {**base_state, **query_state}
+        allow_external_tools = bool(context.metadata.get("enable_external_tools", False))
+        if not allow_external_tools:
+            retrieval_state["ncbi_query"] = ""
+
+        try:
+            retriever_result = await asyncio.wait_for(
+                ncbi_retriever_tool(retrieval_state),
+                timeout=_NODE_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            retriever_result = {**retrieval_state, "evidence_selected": []}
+
+        evidence_selected_raw = retriever_result.get("evidence_selected")
+        evidence_selected = evidence_selected_raw if isinstance(evidence_selected_raw, list) else []
+
         return CapabilityResult(
             name=self.name,
             success=True,
             payload={
                 "status": "ok",
-                "evidence_signal": "evidence_pending",
-                "query": context.text[:120],
+                "evidence_signal": "evidence_ready" if evidence_selected else "evidence_pending",
+                "query": query,
+                "evidence_selected": evidence_selected,
             },
             provenance={
-                "source": "v3_stub",
+                "source": _SOURCE,
                 "capability_version": self.version,
             },
         )
@@ -42,7 +127,7 @@ class EvidenceCapability:
     ) -> CapabilityResult:
         _ = context
         provenance: dict[str, JSONValue] = {
-            "source": "v3_stub",
+            "source": _SOURCE,
             "capability_version": self.version,
         }
         if error is not None:
@@ -50,7 +135,13 @@ class EvidenceCapability:
         return CapabilityResult(
             name=self.name,
             success=False,
-            payload={"status": "degraded", "evidence_signal": "unavailable"},
+            payload={
+                "status": "degraded",
+                "evidence_signal": "unavailable",
+                "query": "",
+                "evidence_selected": [],
+                "message": _SAFE_BUSY_MESSAGE,
+            },
             provenance=provenance,
             errors=[reason],
         )
