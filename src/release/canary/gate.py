@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import math
 from typing import Any
 
 
@@ -49,4 +50,8 @@ class CanaryGate:
 def _is_number(value: Any) -> bool:
     """Return True when value is int/float but not bool."""
 
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value)

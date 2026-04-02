@@ -117,6 +117,22 @@ class Settings(BaseSettings):
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v.upper()
 
+    @field_validator("v4_gate_max_red_flag_miss_rate")
+    @classmethod
+    def validate_v4_gate_max_red_flag_miss_rate(cls, v: float) -> float:
+        """Validate v4 canary red-flag miss-rate threshold."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("V4_GATE_MAX_RED_FLAG_MISS_RATE must be within [0, 1]")
+        return v
+
+    @field_validator("v4_gate_max_p95_ms")
+    @classmethod
+    def validate_v4_gate_max_p95_ms(cls, v: int) -> int:
+        """Validate v4 canary latency threshold."""
+        if v <= 0:
+            raise ValueError("V4_GATE_MAX_P95_MS must be > 0")
+        return v
+
 
 # Global settings instance
 _settings: Optional[Settings] = None
