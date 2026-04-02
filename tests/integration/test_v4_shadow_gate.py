@@ -44,6 +44,11 @@ def test_canary_gate_allows_when_metrics_hit_threshold_exactly() -> None:
         ({"red_flag_miss_rate": 0.004}, "missing_p95_ms"),
         ({"red_flag_miss_rate": "0.004", "p95_ms": 4100}, "missing_red_flag_miss_rate"),
         ({"red_flag_miss_rate": float("nan"), "p95_ms": 4100}, "missing_red_flag_miss_rate"),
+        ({"red_flag_miss_rate": -0.1, "p95_ms": 4100}, "missing_red_flag_miss_rate"),
+        ({"red_flag_miss_rate": 0.004, "p95_ms": 0}, "missing_p95_ms"),
+        ({"red_flag_miss_rate": 0.004, "p95_ms": -1}, "missing_p95_ms"),
+        ({"red_flag_miss_rate": 0.004, "p95_ms": float("nan")}, "missing_p95_ms"),
+        ({"red_flag_miss_rate": 0.004, "p95_ms": float("inf")}, "missing_p95_ms"),
     ],
 )
 def test_canary_gate_blocks_on_missing_or_invalid_metrics(

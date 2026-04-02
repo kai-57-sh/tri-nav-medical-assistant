@@ -34,9 +34,9 @@ class CanaryGate:
         red_flag_miss_rate = metrics.get("red_flag_miss_rate")
         p95_ms = metrics.get("p95_ms")
 
-        if not _is_number(red_flag_miss_rate):
+        if not _is_valid_red_flag_miss_rate(red_flag_miss_rate):
             return CanaryGateDecision(allow=False, reason="missing_red_flag_miss_rate")
-        if not _is_number(p95_ms):
+        if not _is_valid_p95_ms(p95_ms):
             return CanaryGateDecision(allow=False, reason="missing_p95_ms")
 
         if red_flag_miss_rate > self.max_red_flag_miss_rate:
@@ -55,3 +55,15 @@ def _is_number(value: Any) -> bool:
     if not isinstance(value, (int, float)):
         return False
     return math.isfinite(value)
+
+
+def _is_valid_red_flag_miss_rate(value: Any) -> bool:
+    """Return True when red-flag miss rate is finite and within [0, 1]."""
+
+    return _is_number(value) and 0.0 <= value <= 1.0
+
+
+def _is_valid_p95_ms(value: Any) -> bool:
+    """Return True when p95 latency is finite and strictly positive."""
+
+    return _is_number(value) and value > 0
