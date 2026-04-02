@@ -166,6 +166,8 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
 
     event_bus: Any = None
     try:
+        context_metadata = dict(payload.metadata)
+        context_metadata["trace_id"] = trace_id
         context = ExecutionContext(
             request_id=request_id,
             session_id=session_id,
@@ -173,7 +175,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             image_base64=payload.image_base64,
             gps_lat=payload.gps_lat,
             gps_lng=payload.gps_lng,
-            metadata=payload.metadata,
+            metadata=context_metadata,
         )
         event_bus = EventBus()
         engine = QueryEngine(
@@ -260,6 +262,7 @@ async def stream_assistant_v2(payload: AssistantV2InvokePayload) -> StreamingRes
                 "status": "start",
                 "request_id": request_id,
                 "session_id": session_id,
+                "trace_id": trace_id,
             },
         )
         final_payload: dict[str, Any] | None = None

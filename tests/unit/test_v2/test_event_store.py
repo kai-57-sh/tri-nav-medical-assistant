@@ -26,3 +26,21 @@ def test_event_store_list_unknown_session_returns_empty_list() -> None:
     store = InMemoryEventStore()
 
     assert store.list("missing-session") == []
+
+
+def test_event_store_prunes_old_events_and_sessions_when_caps_exceeded() -> None:
+    """Store should retain newest data when retention caps are reached."""
+
+    store = InMemoryEventStore(max_sessions=2, max_events_per_session=2)
+
+    store.append("sess-a", {"idx": 1})
+    store.append("sess-a", {"idx": 2})
+    store.append("sess-a", {"idx": 3})
+    assert store.list("sess-a") == [{"idx": 2}, {"idx": 3}]
+
+    store.append("sess-b", {"idx": 10})
+    store.append("sess-c", {"idx": 20})
+
+    assert store.list("sess-a") == []
+    assert store.list("sess-b") == [{"idx": 10}]
+    assert store.list("sess-c") == [{"idx": 20}]

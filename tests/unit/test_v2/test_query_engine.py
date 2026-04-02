@@ -7,6 +7,7 @@ from src.core.capability.protocol import Capability
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.query_engine import QueryEngine
 from src.core.runtime.types import CapabilityResult, JSONValue
+from src.core.state.event_store import InMemoryEventStore
 
 
 class StubCapability:
@@ -191,3 +192,30 @@ async def test_query_engine_emits_runtime_failed_and_runtime_finished_when_execu
     assert failure_event["data"]["error_type"] == "RuntimeError"
     assert "error_message" in failure_event["data"]
     assert "error_stage" in failure_event["data"]
+
+
+@pytest.mark.asyncio
+async def test_query_engine_persists_events_with_trace_id_when_event_store_injected() -> None:
+    calls: list[str] = []
+    capabilities: list[Capability] = [
+        StubCapability(name="triage", enabled=True, calls=calls),
+    ]
+    ctx = ExecutionContext(
+        request_id="req-5",
+        session_id="sess-5",
+        text="头痛",
+        metadata={"trace_id": "trace-abc-123"},
+    )
+    store = InMemoryEventStore()
+    engine = QueryEngine(capabilities, event_store=store)
+
+    results = await engine.run(ctx)
+
+    assert [result.name for result in results] == ["triage"]
+    events = store.list("sess-5")
+    assert [event["event_type"] for event in events] == [
+        "runtime_started",
+        "capability_completed",
+        "runtime_finished",
+    ]
+    assert all(event["data"]["trace_id"] == "trace-abc-123" for event in events)

@@ -38,15 +38,20 @@ class QueryEngine:
         event_type: str,
         request_id: str,
         session_id: str,
+        trace_id: str | None = None,
         data: dict[str, Any] | None = None,
     ) -> None:
         """Emit to bus and optionally persist by session."""
+
+        payload = {} if data is None else dict(data)
+        if trace_id is not None:
+            payload["trace_id"] = trace_id
 
         event = self.event_bus.emit_runtime_event(
             event_type=event_type,
             request_id=request_id,
             session_id=session_id,
-            data=data,
+            data=payload,
         )
         if self._event_store is not None:
             self._event_store.append(session_id, event.model_dump(mode="json"))
@@ -54,10 +59,13 @@ class QueryEngine:
     async def run(self, context: ExecutionContext) -> list[CapabilityResult]:
         """Run the configured capabilities and emit lifecycle events."""
 
+        raw_trace_id = context.metadata.get("trace_id")
+        trace_id = raw_trace_id if isinstance(raw_trace_id, str) and raw_trace_id else None
         self._emit_runtime_event(
             event_type="runtime_started",
             request_id=context.request_id,
             session_id=context.session_id,
+            trace_id=trace_id,
         )
 
         results: list[CapabilityResult] = []
@@ -74,6 +82,7 @@ class QueryEngine:
                     event_type="capability_completed",
                     request_id=context.request_id,
                     session_id=context.session_id,
+                    trace_id=trace_id,
                     data={"capability": result.name, "success": result.success},
                 )
 
@@ -82,6 +91,7 @@ class QueryEngine:
                     event_type="runtime_failed",
                     request_id=context.request_id,
                     session_id=context.session_id,
+                    trace_id=trace_id,
                     data={
                         "error_type": type(escaped_error).__name__,
                         "error_message": str(escaped_error),
@@ -93,6 +103,7 @@ class QueryEngine:
                 event_type="runtime_finished",
                 request_id=context.request_id,
                 session_id=context.session_id,
+                trace_id=trace_id,
                 data={
                     "capabilities_executed": len(results),
                     "success": escaped_error is None,
