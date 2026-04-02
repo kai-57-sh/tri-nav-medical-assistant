@@ -561,8 +561,9 @@ def _serialize_safety_result(result: SafetyResult) -> dict[str, Any]:
 
 
 def _enforce_response_safety(*, status: str, response_text: Any) -> SafetyResult:
+    _ = status
     normalized_text = response_text if isinstance(response_text, str) else ""
-    if status in {"final", "need_more_info"}:
+    if normalized_text:
         return enforce_output_guard_result(normalized_text)
     return _default_safety_result(normalized_text)
 

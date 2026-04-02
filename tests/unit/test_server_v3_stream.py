@@ -173,6 +173,7 @@ def test_assistant_v3_stream_contract_doc_mentions_http_200_error_parity() -> No
     root = Path(__file__).resolve().parents[2]
     doc_text = (root / "docs" / "frontend_contract" / "events_v3.md").read_text(encoding="utf-8")
     assert "HTTP status remains 200" in doc_text
+    assert '"safety":{' in doc_text
 
 
 @pytest.mark.asyncio

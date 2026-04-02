@@ -177,6 +177,45 @@ def test_assistant_v2_failure_precedence_overrides_payload_status(
     assert data["status"] == "error"
 
 
+def test_assistant_v2_error_with_text_response_still_enforces_medical_safety(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Error payloads with response text should still pass through medical safety engine."""
+
+    _mock_runtime_run(
+        monkeypatch,
+        result=CapabilityResult(
+            name="legacy_triage",
+            success=False,
+            payload={
+                "status": "final",
+                "session_id": "sess-test-v2",
+                "response": "你已经确诊肺炎，先观察几天。",
+            },
+            provenance={"source": "legacy_graph"},
+            errors=["downstream failed"],
+        ),
+    )
+    response = client.post(
+        "/assistant/v2/invoke",
+        json={
+            "request_id": "req-test-v2",
+            "session_id": "sess-test-v2",
+            "text": "胸痛并伴呼吸困难",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["status"] == "error"
+    assert "确诊" not in data["response"]
+    assert "建议尽快就医" in data["response"]
+    assert data["safety"]["risk_level"] == "high"
+    assert "rewrite.confirmed_diagnosis" in data["safety"]["matched_rules"]
+
+
 def test_assistant_v2_runtime_exception_returns_invoke_trace(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

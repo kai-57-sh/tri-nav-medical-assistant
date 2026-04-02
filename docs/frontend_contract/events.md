@@ -17,11 +17,11 @@ data: {"status":"start","request_id":"req-...","session_id":"sess-..."}
 
 - Normal path: same payload returned by `POST /assistant/v2/invoke`.
 - Fallback path (stream-level exception or decode failure): invoke-like error payload with keys:
-  `status`, `session_id`, `response`, `runtime_events`, `provenance`, `trace`, `error_message`.
+  `status`, `session_id`, `response`, `safety`, `runtime_events`, `provenance`, `trace`, `error_message`.
 
 ```text
 event: final
-data: {"status":"final|need_more_info|error","session_id":"...","response":"...","runtime_events":[...],"provenance":{...},"trace":{...},"error_message":"...?"}
+data: {"status":"final|need_more_info|error","session_id":"...","response":"...","safety":{"risk_level":"low|high","matched_rules":[...]},"runtime_events":[...],"provenance":{...},"trace":{...},"error_message":"...?"}
 ```
 
 3. Done marker.
