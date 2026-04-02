@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 import math
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +39,12 @@ class CanaryGate:
         if not _is_valid_p95_ms(p95_ms):
             return CanaryGateDecision(allow=False, reason="missing_p95_ms")
 
-        if red_flag_miss_rate > self.max_red_flag_miss_rate:
+        red_flag_miss_rate_value = cast(float, red_flag_miss_rate)
+        p95_ms_value = cast(float, p95_ms)
+
+        if red_flag_miss_rate_value > self.max_red_flag_miss_rate:
             return CanaryGateDecision(allow=False, reason="red_flag_miss_rate_exceeded")
-        if p95_ms > self.max_p95_ms:
+        if p95_ms_value > self.max_p95_ms:
             return CanaryGateDecision(allow=False, reason="p95_ms_exceeded")
 
         return CanaryGateDecision(allow=True, reason="within_thresholds")
