@@ -30,6 +30,7 @@ Error final payload uses:
 
 - `status: "error"`
 - `error_message: "<message>"`
+- HTTP status remains 200 for the stream transport (v2 parity), even when the final payload status is `error`.
 
 ## Done Marker
 
