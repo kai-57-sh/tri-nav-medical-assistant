@@ -18,8 +18,11 @@ from src.core.plugins.builtin import create_builtin_plugins
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult
-from src.core.state.event_store import InMemoryEventStore
-from src.core.state.session_snapshot_store import InMemorySnapshotStore
+from src.platform.state.event_repository import RuntimeEventRepository, build_event_repository
+from src.platform.state.snapshot_repository import (
+    RuntimeSnapshotRepository,
+    build_snapshot_repository,
+)
 from src.platform.runtime.kernel import (
     RuntimeKernel,
     RuntimeKernelInvokeError,
@@ -29,8 +32,8 @@ from src.policy.safety.medical_guard import enforce_output_guard
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
 _ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
-_RUNTIME_EVENT_STORE = InMemoryEventStore()
-_RUNTIME_SNAPSHOT_STORE = InMemorySnapshotStore()
+_RUNTIME_EVENT_STORE: RuntimeEventRepository = build_event_repository()
+_RUNTIME_SNAPSHOT_STORE: RuntimeSnapshotRepository = build_snapshot_repository()
 
 
 class AssistantV2InvokePayload(BaseModel):
@@ -60,7 +63,7 @@ def _copy_events(value: Any) -> list[dict[str, Any]]:
     return [deepcopy(item) for item in value if isinstance(item, dict)]
 
 
-def _persist_runtime_snapshot(
+async def _persist_runtime_snapshot(
     *,
     request_id: str,
     session_id: str,
@@ -84,14 +87,14 @@ def _persist_runtime_snapshot(
     }
     if error_message is not None:
         snapshot["error_message"] = error_message
-    _RUNTIME_SNAPSHOT_STORE.upsert(session_id, snapshot)
+    await _RUNTIME_SNAPSHOT_STORE.upsert(session_id, snapshot)
 
 
-def get_runtime_session_state(session_id: str) -> dict[str, Any]:
+async def get_runtime_session_state(session_id: str) -> dict[str, Any]:
     """Expose runtime replay data for one session."""
 
-    snapshot = _RUNTIME_SNAPSHOT_STORE.load(session_id)
-    runtime_events = _RUNTIME_EVENT_STORE.list(session_id)
+    snapshot = await _RUNTIME_SNAPSHOT_STORE.load(session_id)
+    runtime_events = await _RUNTIME_EVENT_STORE.list(session_id)
     if not runtime_events and isinstance(snapshot, dict):
         runtime_events = _copy_events(snapshot.get("runtime_events"))
     return {
@@ -107,13 +110,13 @@ def list_runtime_plugins() -> list[str]:
     return _build_runtime_plugin_registry().list_names()
 
 
-def get_runtime_store_summary() -> dict[str, int]:
+async def get_runtime_store_summary() -> dict[str, int]:
     """Expose runtime event/snapshot buffer summary for diagnostics."""
 
     return {
-        "sessions_with_events": _RUNTIME_EVENT_STORE.session_count(),
-        "total_runtime_events": _RUNTIME_EVENT_STORE.event_count(),
-        "sessions_with_snapshots": _RUNTIME_SNAPSHOT_STORE.count(),
+        "sessions_with_events": await _RUNTIME_EVENT_STORE.session_count(),
+        "total_runtime_events": await _RUNTIME_EVENT_STORE.event_count(),
+        "sessions_with_snapshots": await _RUNTIME_SNAPSHOT_STORE.count(),
     }
 
 
@@ -162,9 +165,9 @@ def _is_v3_task_runtime(payload: AssistantV2InvokePayload) -> bool:
     return bool(getattr(settings, "v3_task_coordinator_enabled", False))
 
 
-def _record_runtime_events(session_id: str, events: list[dict[str, Any]]) -> None:
+async def _record_runtime_events(session_id: str, events: list[dict[str, Any]]) -> None:
     for event in events:
-        _RUNTIME_EVENT_STORE.append(session_id, event)
+        await _RUNTIME_EVENT_STORE.append(session_id, event)
 
 
 def _extract_error_message(value: Any) -> str:
@@ -388,7 +391,7 @@ async def _invoke_v3_task_coordinator(
     if primary is None and capability_results:
         primary = capability_results[-1]
     if primary is None:
-        return _error_response(
+        return await _error_response(
             session_id=session_id,
             request_id=request_id,
             trace_id=trace_id,
@@ -432,7 +435,7 @@ async def _invoke_v3_task_coordinator(
             },
         }
     )
-    _record_runtime_events(session_id, runtime_events)
+    await _record_runtime_events(session_id, runtime_events)
 
     output_payload = primary.payload if isinstance(primary.payload, dict) else {}
     runtime_status = output_payload.get("status")
@@ -471,7 +474,7 @@ async def _invoke_v3_task_coordinator(
     body["disclaimer"] = "本建议仅供参考，不替代专业医疗诊断。"
 
     if primary.success and response_status in {"final", "need_more_info"}:
-        _persist_runtime_snapshot(
+        await _persist_runtime_snapshot(
             request_id=request_id,
             session_id=session_id,
             trace_id=trace_id,
@@ -485,7 +488,7 @@ async def _invoke_v3_task_coordinator(
 
     message = "; ".join(primary.errors) if primary.errors else "assistant_v3_task_runtime_failed"
     body["error_message"] = message
-    _persist_runtime_snapshot(
+    await _persist_runtime_snapshot(
         request_id=request_id,
         session_id=session_id,
         trace_id=trace_id,
@@ -499,7 +502,7 @@ async def _invoke_v3_task_coordinator(
     return JSONResponse(status_code=503, content=body)
 
 
-def _error_response(
+async def _error_response(
     *,
     session_id: str,
     request_id: str,
@@ -521,7 +524,7 @@ def _error_response(
         "trace": trace or {"request_id": request_id, "error_message": message},
         "error_message": message,
     }
-    _persist_runtime_snapshot(
+    await _persist_runtime_snapshot(
         request_id=request_id,
         session_id=session_id,
         trace_id=trace_id,
@@ -629,7 +632,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
                 trace_id=trace_id,
             )
         except Exception as exc:
-            return _error_response(
+            return await _error_response(
                 session_id=session_id,
                 request_id=request_id,
                 trace_id=trace_id,
@@ -645,7 +648,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     try:
         kernel = build_runtime_kernel()
     except Exception as exc:  # pragma: no cover - defensive import guard
-        return _error_response(
+        return await _error_response(
             session_id=session_id,
             request_id=request_id,
             trace_id=trace_id,
@@ -667,7 +670,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
         )
     except RuntimeKernelInvokeError as exc:
         error = exc.error
-        return _error_response(
+        return await _error_response(
             session_id=session_id,
             request_id=request_id,
             trace_id=trace_id,
@@ -684,7 +687,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
         runtime_events = getattr(exc, "runtime_events", [])
         if not isinstance(runtime_events, list):
             runtime_events = []
-        return _error_response(
+        return await _error_response(
             session_id=session_id,
             request_id=request_id,
             trace_id=trace_id,
@@ -701,7 +704,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     results = kernel_result.results
     runtime_events = kernel_result.runtime_events
     if not results:
-        return _error_response(
+        return await _error_response(
             session_id=session_id,
             request_id=request_id,
             trace_id=trace_id,
@@ -736,7 +739,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     }
 
     if primary.success and response_status in {"final", "need_more_info"}:
-        _persist_runtime_snapshot(
+        await _persist_runtime_snapshot(
             request_id=request_id,
             session_id=body["session_id"],
             trace_id=trace_id,
@@ -750,7 +753,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
 
     message = error_message if isinstance(error_message, str) else "; ".join(primary.errors)
     body["error_message"] = message or "assistant_v2_runtime_failed"
-    _persist_runtime_snapshot(
+    await _persist_runtime_snapshot(
         request_id=request_id,
         session_id=body["session_id"],
         trace_id=trace_id,

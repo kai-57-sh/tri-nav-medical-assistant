@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 from uuid import uuid4
 
@@ -19,6 +20,12 @@ from src.interfaces.api.assistant_v2 import (
 from src.interfaces.api.assistant_v3 import invoke_assistant_v3
 
 router = APIRouter(prefix="/assistant/v3/runtime", tags=["assistant-v3-runtime"])
+
+
+async def _resolve_maybe_awaitable(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 class RuntimeResumePayload(BaseModel):
@@ -58,7 +65,7 @@ async def runtime_doctor_v3() -> dict[str, Any]:
         "dependencies": {
             "redis": {"healthy": redis_healthy},
         },
-        "observability": get_runtime_store_summary(),
+        "observability": await _resolve_maybe_awaitable(get_runtime_store_summary()),
     }
 
 
@@ -66,7 +73,9 @@ async def runtime_doctor_v3() -> dict[str, Any]:
 async def replay_session_v3(session_id: str) -> dict[str, Any]:
     """Return replay data for one session from runtime stores."""
 
-    state = get_runtime_session_state(session_id)
+    state = await _resolve_maybe_awaitable(get_runtime_session_state(session_id))
+    if not isinstance(state, dict):
+        state = {}
     snapshot = state.get("snapshot")
     runtime_events = state.get("runtime_events", [])
     if snapshot is None and not runtime_events:
@@ -94,7 +103,9 @@ async def list_plugins_v3() -> dict[str, Any]:
 async def resume_session_v3(session_id: str, payload: RuntimeResumePayload) -> JSONResponse:
     """Resume an existing session by re-invoking v3 on the same session id."""
 
-    state = get_runtime_session_state(session_id)
+    state = await _resolve_maybe_awaitable(get_runtime_session_state(session_id))
+    if not isinstance(state, dict):
+        state = {}
     snapshot = state.get("snapshot")
     runtime_events = state.get("runtime_events", [])
     if snapshot is None and not runtime_events:
