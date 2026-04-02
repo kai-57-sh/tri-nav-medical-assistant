@@ -8,7 +8,7 @@ def test_v2_runtime_flag_defaults_false(monkeypatch):
     monkeypatch.delenv("V2_RUNTIME_ENABLED", raising=False)
     monkeypatch.delenv("V2_SHADOW_COMPARE_ENABLED", raising=False)
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
 
     assert settings.v2_runtime_enabled is False
     assert settings.v2_shadow_compare_enabled is False
@@ -20,7 +20,7 @@ def test_v2_runtime_flag_from_env(monkeypatch):
     monkeypatch.setenv("V2_RUNTIME_ENABLED", "true")
     monkeypatch.setenv("V2_SHADOW_COMPARE_ENABLED", "true")
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
 
     assert settings.v2_runtime_enabled is True
     assert settings.v2_shadow_compare_enabled is True
