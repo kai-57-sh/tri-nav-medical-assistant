@@ -51,7 +51,11 @@ class TriageCapability:
         return CapabilityResult(
             name=self.name,
             success=False,
-            payload={"status": "degraded", "triage_level": "UNKNOWN"},
+            payload={
+                "status": "degraded",
+                "triage_level": "SELF_CARE",
+                "triage_signal": "triage_degraded",
+            },
             provenance=provenance,
             errors=[reason],
         )

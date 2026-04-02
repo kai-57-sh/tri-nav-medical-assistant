@@ -35,16 +35,16 @@ async def test_consultation_capability_returns_status_payload() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("capability", "name", "signal_key"),
+    ("capability", "name", "signal_key", "expected_status"),
     [
-        (TriageCapability(), "triage", "triage_level"),
-        (EvidenceCapability(), "evidence", "evidence_signal"),
-        (NavigationCapability(), "navigation", "navigation_signal"),
-        (ResponseCapability(), "response", "response_signal"),
+        (TriageCapability(), "triage", "triage_level", "ok"),
+        (EvidenceCapability(), "evidence", "evidence_signal", "ok"),
+        (NavigationCapability(), "navigation", "navigation_signal", "ok"),
+        (ResponseCapability(), "response", "response_signal", "final"),
     ],
 )
 async def test_v3_capability_stub_payloads_keep_medical_signals(
-    capability: object, name: str, signal_key: str
+    capability: object, name: str, signal_key: str, expected_status: str
 ) -> None:
     context = _build_context()
 
@@ -53,7 +53,7 @@ async def test_v3_capability_stub_payloads_keep_medical_signals(
 
     assert result.name == name
     assert result.success is True
-    assert result.payload["status"] == "ok"
+    assert result.payload["status"] == expected_status
     assert signal_key in result.payload
 
 
@@ -65,6 +65,18 @@ async def test_response_capability_signal_contract_for_run_and_fallback() -> Non
     run_result = await capability.run(context, await capability.plan(context))
     fallback_result = await capability.fallback(context, reason="response_unavailable")
 
+    assert run_result.payload["status"] in {"final", "need_more_info"}
     assert run_result.payload["response_signal"] == "response_ready"
-    assert fallback_result.payload["status"] == "degraded"
-    assert fallback_result.payload["response_signal"] == "response_degraded"
+    assert "response" in run_result.payload
+    assert fallback_result.payload["status"] == "error"
+    assert fallback_result.payload["response_signal"] == "response_error"
+    assert fallback_result.payload["response"] == ""
+
+
+@pytest.mark.asyncio
+async def test_triage_capability_fallback_uses_allowed_enum_value() -> None:
+    capability = TriageCapability()
+    fallback_result = await capability.fallback(_build_context(), reason="triage_unavailable")
+
+    assert fallback_result.payload["triage_level"] == "SELF_CARE"
+    assert fallback_result.payload["triage_signal"] == "triage_degraded"
