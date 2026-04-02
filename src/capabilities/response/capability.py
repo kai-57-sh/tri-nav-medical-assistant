@@ -25,6 +25,7 @@ class ResponseCapability:
             success=True,
             payload={
                 "status": "ok",
+                "response_signal": "response_ready",
                 "response_text": f"已记录症状：{context.text[:80]}",
             },
             provenance={
@@ -49,7 +50,11 @@ class ResponseCapability:
         return CapabilityResult(
             name=self.name,
             success=False,
-            payload={"status": "degraded", "response_text": ""},
+            payload={
+                "status": "degraded",
+                "response_signal": "response_degraded",
+                "response_text": "",
+            },
             provenance=provenance,
             errors=[reason],
         )

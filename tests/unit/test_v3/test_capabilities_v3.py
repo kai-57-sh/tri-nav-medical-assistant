@@ -40,7 +40,7 @@ async def test_consultation_capability_returns_status_payload() -> None:
         (TriageCapability(), "triage", "triage_level"),
         (EvidenceCapability(), "evidence", "evidence_signal"),
         (NavigationCapability(), "navigation", "navigation_signal"),
-        (ResponseCapability(), "response", "response_text"),
+        (ResponseCapability(), "response", "response_signal"),
     ],
 )
 async def test_v3_capability_stub_payloads_keep_medical_signals(
@@ -56,3 +56,15 @@ async def test_v3_capability_stub_payloads_keep_medical_signals(
     assert result.payload["status"] == "ok"
     assert signal_key in result.payload
 
+
+@pytest.mark.asyncio
+async def test_response_capability_signal_contract_for_run_and_fallback() -> None:
+    capability = ResponseCapability()
+    context = _build_context()
+
+    run_result = await capability.run(context, await capability.plan(context))
+    fallback_result = await capability.fallback(context, reason="response_unavailable")
+
+    assert run_result.payload["response_signal"] == "response_ready"
+    assert fallback_result.payload["status"] == "degraded"
+    assert fallback_result.payload["response_signal"] == "response_degraded"
