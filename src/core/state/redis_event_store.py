@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 from typing import Any
 
 from typing import TYPE_CHECKING
@@ -18,6 +20,9 @@ class RedisEventStore:
 
     _TTL_SECONDS = 3600
     _MAX_EVENTS_PER_SESSION = 200
+    _MIGRATION_LOCK_SECONDS = 5
+    _MIGRATION_APPEND_RETRIES = 20
+    _MIGRATION_RETRY_DELAY_SECONDS = 0.01
 
     def __init__(self, redis_service: "RedisService") -> None:
         self._redis = redis_service
@@ -79,13 +84,26 @@ class RedisEventStore:
     async def _migrate_legacy_key_and_append(
         self, redis_client: Any, session_id: str, event: dict[str, Any]
     ) -> bool:
+        lock_key = f"lock:events:migrate:{session_id}"
+        lock_token = await self._acquire_migration_lock(redis_client=redis_client, lock_key=lock_key)
+        if lock_token is None:
+            return await self._retry_append_after_migration(
+                redis_client=redis_client, session_id=session_id, event=event
+            )
+
         load_cached_result = getattr(self._redis, "load_cached_result", None)
         if not callable(load_cached_result):
+            await self._release_migration_lock(
+                redis_client=redis_client, lock_key=lock_key, lock_token=lock_token
+            )
             return False
 
         try:
             legacy_payload = await load_cached_result(f"events:{session_id}")
         except (RedisError, RuntimeError, AttributeError, TypeError):
+            await self._release_migration_lock(
+                redis_client=redis_client, lock_key=lock_key, lock_token=lock_token
+            )
             return False
 
         history: list[dict[str, Any]] = []
@@ -109,8 +127,68 @@ class RedisEventStore:
             return True
         except (RedisError, RuntimeError, AttributeError, TypeError):
             return False
+        finally:
+            await self._release_migration_lock(
+                redis_client=redis_client, lock_key=lock_key, lock_token=lock_token
+            )
 
     def _is_wrongtype_error(self, error: Exception | None) -> bool:
         if error is None:
             return False
         return "WRONGTYPE" in str(error).upper()
+
+    async def _acquire_migration_lock(self, redis_client: Any, lock_key: str) -> str | None:
+        lock_set = getattr(redis_client, "set", None)
+        if not callable(lock_set):
+            return None
+
+        lock_token = str(uuid.uuid4())
+        try:
+            acquired = await lock_set(
+                lock_key,
+                lock_token,
+                nx=True,
+                ex=self._MIGRATION_LOCK_SECONDS,
+            )
+        except (RedisError, RuntimeError, AttributeError, TypeError):
+            return None
+
+        if not acquired:
+            return None
+        return lock_token
+
+    async def _release_migration_lock(
+        self, redis_client: Any, lock_key: str, lock_token: str
+    ) -> None:
+        lock_get = getattr(redis_client, "get", None)
+        lock_delete = getattr(redis_client, "delete", None)
+        if not callable(lock_delete):
+            return
+
+        if not callable(lock_get):
+            try:
+                await lock_delete(lock_key)
+            except (RedisError, RuntimeError, AttributeError, TypeError):
+                return
+            return
+
+        try:
+            current_lock_value = await lock_get(lock_key)
+            if current_lock_value == lock_token:
+                await lock_delete(lock_key)
+        except (RedisError, RuntimeError, AttributeError, TypeError):
+            return
+
+    async def _retry_append_after_migration(
+        self, redis_client: Any, session_id: str, event: dict[str, Any]
+    ) -> bool:
+        for _ in range(self._MIGRATION_APPEND_RETRIES):
+            append_ok, append_error = await self._append_without_pipeline(
+                redis_client=redis_client, session_id=session_id, event=event
+            )
+            if append_ok:
+                return True
+            if not self._is_wrongtype_error(append_error):
+                return False
+            await asyncio.sleep(self._MIGRATION_RETRY_DELAY_SECONDS)
+        return False
