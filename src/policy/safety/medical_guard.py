@@ -1,8 +1,8 @@
 """Medical output safety guard."""
 
+import re
+
 _MEDICAL_GUARD_REPLACEMENTS: dict[str, str] = {
-    "不建议尽快就医": "建议尽快就医",
-    "不需要尽快就医": "建议尽快就医",
     "确诊": "疑似",
     "别去医院": "建议尽快就医",
     "先观察几天": "建议尽快就医",
@@ -11,6 +11,8 @@ _MEDICAL_GUARD_REPLACEMENTS: dict[str, str] = {
     "不用就医": "建议尽快就医",
     "肯定没事": "建议尽快就医",
 }
+
+_NEGATED_SEEK_CARE_PATTERN = re.compile(r"(不建议|无需|不必|不需要|没必要)\s*尽快就医")
 
 
 def _normalize_trailing_punctuation(text: str) -> str:
@@ -27,11 +29,12 @@ def enforce_output_guard(text: str) -> str:
     """Rewrite risky medical wording and enforce emergency guidance."""
 
     guarded = text
+    guarded = _NEGATED_SEEK_CARE_PATTERN.sub("建议尽快就医", guarded)
     for source, target in _MEDICAL_GUARD_REPLACEMENTS.items():
         guarded = guarded.replace(source, target)
 
+    guarded = _normalize_trailing_punctuation(guarded)
     if "尽快就医" not in guarded:
-        guarded = _normalize_trailing_punctuation(guarded)
         if guarded and guarded[-1] not in {"。", "！", "？"}:
             guarded = f"{guarded}。"
         guarded = f"{guarded}建议尽快就医"

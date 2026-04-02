@@ -1,5 +1,7 @@
 """Unit tests for medical output safety guard."""
 
+import re
+
 import pytest
 
 from src.policy.safety import enforce_output_guard
@@ -54,3 +56,28 @@ def test_enforce_output_guard_rewrites_negated_procare_phrase_bypass() -> None:
     assert "不建议尽快就医" not in guarded
     assert "建议尽快就医" in guarded
     assert "尽快就医" in guarded
+
+
+@pytest.mark.parametrize(
+    "negated_phrase",
+    [
+        "不建议尽快就医",
+        "无需尽快就医",
+        "不必尽快就医",
+        "不需要尽快就医",
+        "没必要尽快就医",
+        "不建议   尽快就医",
+        "无需  尽快就医",
+    ],
+)
+def test_enforce_output_guard_normalizes_negated_seek_care_variants(
+    negated_phrase: str,
+) -> None:
+    original = f"当前情况{negated_phrase}，继续观察。"
+
+    guarded = enforce_output_guard(original)
+
+    assert negated_phrase not in guarded
+    assert "建议尽快就医" in guarded
+    assert "尽快就医" in guarded
+    assert re.search(r"(不建议|无需|不必|不需要|没必要)\s*尽快就医", guarded) is None
