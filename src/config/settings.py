@@ -70,6 +70,18 @@ class Settings(BaseSettings):
         default=True,
         description="Enable built-in medical disclaimer footer plugin",
     )
+    v4_canary_enabled: bool = Field(
+        default=False,
+        description="Enable v4 canary rollout gate checks",
+    )
+    v4_gate_max_red_flag_miss_rate: float = Field(
+        default=0.01,
+        description="Maximum allowed red-flag miss rate before blocking rollout",
+    )
+    v4_gate_max_p95_ms: int = Field(
+        default=6000,
+        description="Maximum allowed p95 latency in milliseconds before blocking rollout",
+    )
 
     # Server Configuration
     server_host: str = Field(default="0.0.0.0", description="Server host")

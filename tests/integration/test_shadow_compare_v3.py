@@ -111,6 +111,27 @@ async def test_compare_v1_v3_one_runner_raises_forces_non_match() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+async def test_compare_v1_v3_both_runners_raise_forces_non_match() -> None:
+    """Even when both fail, compare should not report equal status/triage."""
+
+    async def v1_runner(_: dict[str, object]) -> dict[str, object]:
+        raise ValueError("bad payload")
+
+    async def v3_runner(_: dict[str, object]) -> dict[str, object]:
+        raise TimeoutError("timed out")
+
+    result = await compare_v1_v3({"text": "x"}, v1_runner=v1_runner, v3_runner=v3_runner)
+
+    assert result["same_status"] is False
+    assert result["same_triage"] is False
+    assert result["v1"]["failed"] is True
+    assert result["v1"]["error_type"] == "ValueError"
+    assert result["v3"]["failed"] is True
+    assert result["v3"]["error_type"] == "TimeoutError"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_compare_v1_v3_invalid_payload_forces_non_match() -> None:
     """Invalid runner payload should be marked and force compare mismatch."""
 
