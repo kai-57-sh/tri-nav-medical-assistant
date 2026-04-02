@@ -82,6 +82,10 @@ async def test_vision_extract_valid_image(minimal_state, sample_image_base64, mo
     # Should extract visual findings
     assert result["visual_findings"] is not None
     assert result["visual_findings"]["type"] == "rash"
+    mock_llm_service.extract_visual_features.assert_awaited_once_with(
+        image_base64=sample_image_base64,
+        text="手臂上出现红疹",
+    )
 
 
 @pytest.mark.asyncio

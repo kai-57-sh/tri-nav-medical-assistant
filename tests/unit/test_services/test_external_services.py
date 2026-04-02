@@ -177,6 +177,22 @@ class TestNCBIService:
         # Should return empty list on error
         assert result == []
 
+    async def test_parse_article_authors_fallback_no_name_error(self):
+        """Test author fallback branch does not raise and returns parsed article."""
+        service = NCBIService()
+
+        article = service._parse_article(
+            "12345678",
+            {
+                "title": "Dermatitis case update",
+                "pubdate": "2024 Jan",
+                "authors": [{"name": "Alice"}],
+            },
+        )
+
+        assert article is not None
+        assert article["source"] == "Unknown Journal"
+
 
 @pytest.mark.asyncio
 class TestWeatherService:
