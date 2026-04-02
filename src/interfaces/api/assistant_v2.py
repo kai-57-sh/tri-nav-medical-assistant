@@ -626,12 +626,15 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             },
         )
     except Exception as exc:
+        runtime_events = getattr(exc, "runtime_events", [])
+        if not isinstance(runtime_events, list):
+            runtime_events = []
         return _error_response(
             session_id=session_id,
             request_id=request_id,
             trace_id=trace_id,
             message="assistant_v2_runtime_failed",
-            runtime_events=[],
+            runtime_events=runtime_events,
             trace={
                 "request_id": request_id,
                 "error_stage": "invoke",

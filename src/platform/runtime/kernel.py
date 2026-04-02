@@ -5,12 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from src.capabilities.legacy_triage.capability import LegacyTriageCapability
 from src.core.coordinator.runtime_coordinator import RuntimeCoordinator
 from src.core.plugins.registry import RuntimePluginRegistry
-from src.core.runtime.event_bus import EventBus
 from src.core.runtime.execution_context import ExecutionContext
-from src.core.runtime.query_engine import QueryEngine
 from src.core.runtime.types import JSONValue, CapabilityResult
 from src.core.state.event_store import InMemoryEventStore
 
@@ -23,6 +20,13 @@ class RuntimeInvokePayload(Protocol):
     gps_lat: float | None
     gps_lng: float | None
     metadata: dict[str, Any]
+
+
+class RuntimeEventBus(Protocol):
+    """Minimal event bus contract used by RuntimeKernel."""
+
+    def dump(self) -> list[dict[str, JSONValue]]:
+        """Return serialized runtime events."""
 
 
 @dataclass(frozen=True)
@@ -55,7 +59,7 @@ class RuntimeKernel:
         self,
         *,
         coordinator: RuntimeCoordinator,
-        event_bus: EventBus,
+        event_bus: RuntimeEventBus,
     ) -> None:
         self._coordinator = coordinator
         self._event_bus = event_bus
@@ -101,6 +105,10 @@ def build_runtime_kernel(
     plugins: RuntimePluginRegistry | None = None,
 ) -> RuntimeKernel:
     """Build RuntimeKernel with legacy v2 triage capability."""
+
+    from src.capabilities.legacy_triage.capability import LegacyTriageCapability
+    from src.core.runtime.event_bus import EventBus
+    from src.core.runtime.query_engine import QueryEngine
 
     event_bus = EventBus()
     engine = QueryEngine(
