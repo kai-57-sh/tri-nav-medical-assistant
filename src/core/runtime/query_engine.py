@@ -30,20 +30,41 @@ class QueryEngine:
             session_id=context.session_id,
         )
 
-        results = await self._executor.execute(context)
+        results: list[CapabilityResult] = []
+        escaped_error: Exception | None = None
+        try:
+            results = await self._executor.execute(context)
+            return results
+        except Exception as exc:
+            escaped_error = exc
+            raise
+        finally:
+            for result in results:
+                self.event_bus.emit_runtime_event(
+                    event_type="capability_completed",
+                    request_id=context.request_id,
+                    session_id=context.session_id,
+                    data={"capability": result.name, "success": result.success},
+                )
 
-        for result in results:
+            if escaped_error is not None:
+                self.event_bus.emit_runtime_event(
+                    event_type="runtime_failed",
+                    request_id=context.request_id,
+                    session_id=context.session_id,
+                    data={
+                        "error_type": type(escaped_error).__name__,
+                        "error_message": str(escaped_error),
+                        "error_stage": "executor",
+                    },
+                )
+
             self.event_bus.emit_runtime_event(
-                event_type="capability_completed",
+                event_type="runtime_finished",
                 request_id=context.request_id,
                 session_id=context.session_id,
-                data={"capability": result.name, "success": result.success},
+                data={
+                    "capabilities_executed": len(results),
+                    "success": escaped_error is None,
+                },
             )
-
-        self.event_bus.emit_runtime_event(
-            event_type="runtime_finished",
-            request_id=context.request_id,
-            session_id=context.session_id,
-            data={"capabilities_executed": len(results)},
-        )
-        return results

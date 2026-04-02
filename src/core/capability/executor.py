@@ -16,8 +16,32 @@ class SequentialExecutor:
 
         results: list[CapabilityResult] = []
         for capability in self._capabilities:
-            plan = await capability.plan(context)
-            if plan.get("enabled") is False:
+            try:
+                plan = await capability.plan(context)
+                enabled = plan.get("enabled", True)
+                if not isinstance(enabled, bool):
+                    raise TypeError("Plan field 'enabled' must be bool.")
+            except Exception as exc:
+                results.append(
+                    await capability.fallback(
+                        context,
+                        reason=f"plan_failed: {exc}",
+                        error=exc,
+                    )
+                )
                 continue
-            results.append(await capability.run(context, plan))
+
+            if enabled is False:
+                continue
+
+            try:
+                results.append(await capability.run(context, plan))
+            except Exception as exc:
+                results.append(
+                    await capability.fallback(
+                        context,
+                        reason=f"run_failed: {exc}",
+                        error=exc,
+                    )
+                )
         return results
