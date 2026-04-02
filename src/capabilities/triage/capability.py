@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
+from src.utils.logging_config import get_logger
 
 _SOURCE = "v3_medical_pipeline"
 _SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
-_NODE_TIMEOUT_SECONDS = 0.35
+_PROD_NODE_TIMEOUT_SECONDS = 3.0
+_TEST_NODE_TIMEOUT_SECONDS = 0.35
 _TRIAGE_LEVELS = frozenset({"EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"})
+logger = get_logger(__name__)
 
 
 async def red_flag_detector(state: dict[str, Any]) -> dict[str, Any]:
@@ -96,6 +100,13 @@ def _heuristic_triage(text: str) -> dict[str, Any]:
         "剧烈",
         "严重",
     )
+    self_care_tokens = (
+        "轻微",
+        "稍微",
+        "好转",
+        "缓解",
+        "不严重",
+    )
 
     if any(token in text for token in emergency_tokens):
         triage_level = "EMERGENCY"
@@ -107,6 +118,11 @@ def _heuristic_triage(text: str) -> dict[str, Any]:
         triage_reason = "症状存在较高风险，建议尽快线下就医"
         departments = ["急诊", "内科"]
         red_flags = ["若症状快速加重，请立即急诊。"]
+    elif any(token in text for token in self_care_tokens):
+        triage_level = "SELF_CARE"
+        triage_reason = "症状偏轻，可先居家观察并预约门诊复评"
+        departments = ["全科"]
+        red_flags = ["若症状加重或出现胸痛、呼吸困难，请立即急诊。"]
     else:
         triage_level = "ROUTINE"
         triage_reason = "当前信息未见明确紧急信号，建议常规门诊就诊"
@@ -123,6 +139,15 @@ def _heuristic_triage(text: str) -> dict[str, Any]:
         "llm_self_care_tips": ["记录症状变化并保持休息。"],
         "llm_red_flags": red_flags,
     }
+
+
+def _node_timeout_seconds(context: ExecutionContext) -> float:
+    override = context.metadata.get("node_timeout_seconds")
+    if isinstance(override, (int, float)) and float(override) > 0:
+        return float(override)
+    if os.getenv("QWEN_API_KEY") == "test-key":
+        return _TEST_NODE_TIMEOUT_SECONDS
+    return _PROD_NODE_TIMEOUT_SECONDS
 
 
 class TriageCapability:
@@ -153,9 +178,10 @@ class TriageCapability:
         try:
             classifier_state = await asyncio.wait_for(
                 triage_classifier(red_flag_state),
-                timeout=_NODE_TIMEOUT_SECONDS,
+                timeout=_node_timeout_seconds(context),
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("triage_classifier_timeout_or_error", extra={"error": str(exc)})
             classifier_state = {**red_flag_state, **_heuristic_triage(context.text)}
 
         llm_triage_level = classifier_state.get("llm_triage_level")

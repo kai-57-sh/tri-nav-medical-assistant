@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
+from src.utils.logging_config import get_logger
 
 _SOURCE = "v3_medical_pipeline"
 _SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
-_NODE_TIMEOUT_SECONDS = 0.35
+_PROD_NODE_TIMEOUT_SECONDS = 3.0
+_TEST_NODE_TIMEOUT_SECONDS = 0.35
+_TRIAGE_LEVELS = frozenset({"EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"})
+logger = get_logger(__name__)
 
 
 async def navigator(state: dict[str, Any]) -> dict[str, Any]:
@@ -30,7 +35,36 @@ def _heuristic_triage_level(text: str) -> str:
         return "EMERGENCY"
     if any(token in text for token in ("严重", "剧烈", "高烧", "高热", "持续恶化")):
         return "URGENT"
+    if any(token in text for token in ("轻微", "稍微", "好转", "缓解", "不严重")):
+        return "SELF_CARE"
     return "ROUTINE"
+
+
+def _triage_level_from_context(context: ExecutionContext) -> str:
+    metadata = context.metadata if isinstance(context.metadata, dict) else {}
+    raw = metadata.get("triage_level")
+    if isinstance(raw, str) and raw in _TRIAGE_LEVELS:
+        return raw
+    return _heuristic_triage_level(context.text)
+
+
+def _default_departments(triage_level: str) -> list[str]:
+    if triage_level == "EMERGENCY":
+        return ["急诊"]
+    if triage_level == "URGENT":
+        return ["急诊", "内科"]
+    if triage_level == "SELF_CARE":
+        return ["全科"]
+    return ["全科", "内科"]
+
+
+def _node_timeout_seconds(context: ExecutionContext) -> float:
+    override = context.metadata.get("node_timeout_seconds")
+    if isinstance(override, (int, float)) and float(override) > 0:
+        return float(override)
+    if os.getenv("QWEN_API_KEY") == "test-key":
+        return _TEST_NODE_TIMEOUT_SECONDS
+    return _PROD_NODE_TIMEOUT_SECONDS
 
 
 class NavigationCapability:
@@ -49,29 +83,32 @@ class NavigationCapability:
         plan: dict[str, JSONValue] | None = None,
     ) -> CapabilityResult:
         _ = plan
+        triage_level = _triage_level_from_context(context)
         state: dict[str, Any] = {
             "session_id": context.session_id,
-            "triage_level": _heuristic_triage_level(context.text),
+            "triage_level": triage_level,
             "gps_lat": context.gps_lat,
             "gps_lng": context.gps_lng,
             "case_domain": None,
-            "recommended_departments": ["全科", "内科"],
+            "recommended_departments": _default_departments(triage_level),
         }
 
         try:
             navigation_state = await asyncio.wait_for(
                 navigator(state),
-                timeout=_NODE_TIMEOUT_SECONDS,
+                timeout=_node_timeout_seconds(context),
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("navigator_timeout_or_error", extra={"error": str(exc)})
             navigation_state = {**state, "navigation_result": None}
 
         try:
             weather_state = await asyncio.wait_for(
                 weather_fetcher(navigation_state),
-                timeout=_NODE_TIMEOUT_SECONDS,
+                timeout=_node_timeout_seconds(context),
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("weather_fetcher_timeout_or_error", extra={"error": str(exc)})
             weather_state = {**navigation_state, "weather_alert": None}
 
         navigation_result = weather_state.get("navigation_result")

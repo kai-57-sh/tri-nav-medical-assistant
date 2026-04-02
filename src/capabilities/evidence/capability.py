@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
+from src.utils.logging_config import get_logger
 
 _SOURCE = "v3_medical_pipeline"
 _SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
-_NODE_TIMEOUT_SECONDS = 0.35
+_PROD_NODE_TIMEOUT_SECONDS = 3.0
+_TEST_NODE_TIMEOUT_SECONDS = 0.35
+logger = get_logger(__name__)
 
 
 async def ncbi_query_builder(state: dict[str, Any]) -> dict[str, Any]:
@@ -54,6 +58,26 @@ def _extract_symptom_schema_heuristic(text: str) -> dict[str, Any]:
     }
 
 
+def _node_timeout_seconds(context: ExecutionContext) -> float:
+    override = context.metadata.get("node_timeout_seconds")
+    if isinstance(override, (int, float)) and float(override) > 0:
+        return float(override)
+    if os.getenv("QWEN_API_KEY") == "test-key":
+        return _TEST_NODE_TIMEOUT_SECONDS
+    return _PROD_NODE_TIMEOUT_SECONDS
+
+
+def _external_tools_enabled(context: ExecutionContext) -> bool:
+    raw = context.metadata.get("enable_external_tools")
+    if raw is None:
+        return True
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(raw)
+
+
 class EvidenceCapability:
     """Collect supporting evidence via NCBI query builder + retriever nodes."""
 
@@ -80,25 +104,27 @@ class EvidenceCapability:
         try:
             query_state = await asyncio.wait_for(
                 ncbi_query_builder(base_state),
-                timeout=_NODE_TIMEOUT_SECONDS,
+                timeout=_node_timeout_seconds(context),
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("ncbi_query_builder_timeout_or_error", extra={"error": str(exc)})
             query_state = {**base_state, "ncbi_query": ""}
 
         query_raw = query_state.get("ncbi_query")
         query = query_raw if isinstance(query_raw, str) else ""
 
         retrieval_state = {**base_state, **query_state}
-        allow_external_tools = bool(context.metadata.get("enable_external_tools", False))
+        allow_external_tools = _external_tools_enabled(context)
         if not allow_external_tools:
             retrieval_state["ncbi_query"] = ""
 
         try:
             retriever_result = await asyncio.wait_for(
                 ncbi_retriever_tool(retrieval_state),
-                timeout=_NODE_TIMEOUT_SECONDS,
+                timeout=_node_timeout_seconds(context),
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("ncbi_retriever_timeout_or_error", extra={"error": str(exc)})
             retriever_result = {**retrieval_state, "evidence_selected": []}
 
         evidence_selected_raw = retriever_result.get("evidence_selected")

@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
+from src.utils.logging_config import get_logger
 
 _SOURCE = "v3_medical_pipeline"
 _SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
-_NODE_TIMEOUT_SECONDS = 0.35
+_PROD_NODE_TIMEOUT_SECONDS = 3.0
+_TEST_NODE_TIMEOUT_SECONDS = 0.35
+_TRIAGE_LEVELS = frozenset({"EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"})
+logger = get_logger(__name__)
 
 
 async def reasoning_verifier(state: dict[str, Any]) -> dict[str, Any]:
@@ -30,11 +35,30 @@ def _heuristic_triage_level(text: str) -> str:
         return "EMERGENCY"
     if any(token in text for token in ("严重", "剧烈", "高烧", "高热", "持续恶化")):
         return "URGENT"
+    if any(token in text for token in ("轻微", "稍微", "好转", "缓解", "不严重")):
+        return "SELF_CARE"
     return "ROUTINE"
 
 
+def _triage_level_from_context(context: ExecutionContext) -> str:
+    metadata = context.metadata if isinstance(context.metadata, dict) else {}
+    raw = metadata.get("triage_level")
+    if isinstance(raw, str) and raw in _TRIAGE_LEVELS:
+        return raw
+    return _heuristic_triage_level(context.text)
+
+
+def _node_timeout_seconds(context: ExecutionContext) -> float:
+    override = context.metadata.get("node_timeout_seconds")
+    if isinstance(override, (int, float)) and float(override) > 0:
+        return float(override)
+    if os.getenv("QWEN_API_KEY") == "test-key":
+        return _TEST_NODE_TIMEOUT_SECONDS
+    return _PROD_NODE_TIMEOUT_SECONDS
+
+
 def _build_response_state(context: ExecutionContext) -> dict[str, Any]:
-    triage_level = _heuristic_triage_level(context.text)
+    triage_level = _triage_level_from_context(context)
     excerpt = context.text.strip()[:20]
     if triage_level == "EMERGENCY":
         departments = ["急诊"]
@@ -42,6 +66,9 @@ def _build_response_state(context: ExecutionContext) -> dict[str, Any]:
     elif triage_level == "URGENT":
         departments = ["急诊", "内科"]
         reason = "症状存在较高风险，建议尽快线下就医"
+    elif triage_level == "SELF_CARE":
+        departments = ["全科"]
+        reason = "当前症状偏轻，可先居家观察并择期门诊复评"
     else:
         departments = ["全科", "内科"]
         reason = "当前信息未见明确紧急信号，建议常规门诊就诊"
@@ -84,7 +111,7 @@ class ResponseCapability:
         try:
             verifier_state = await asyncio.wait_for(
                 reasoning_verifier(state),
-                timeout=_NODE_TIMEOUT_SECONDS,
+                timeout=_node_timeout_seconds(context),
             )
             status_raw = verifier_state.get("status")
             if isinstance(status_raw, str) and status_raw in {"final", "need_more_info"}:
@@ -94,7 +121,8 @@ class ResponseCapability:
                 generated_response = final_response_raw
             else:
                 generated_response = response_composer(state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("reasoning_verifier_timeout_or_error", extra={"error": str(exc)})
             generated_response = response_composer(state)
 
         response_text = f"已记录症状：{context.text[:80]}\n{generated_response}".strip()

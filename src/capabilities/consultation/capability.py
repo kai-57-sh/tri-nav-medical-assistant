@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
+from src.utils.logging_config import get_logger
 
 _SOURCE = "v3_medical_pipeline"
 _SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
-_NODE_TIMEOUT_SECONDS = 0.35
+_PROD_NODE_TIMEOUT_SECONDS = 3.0
+_TEST_NODE_TIMEOUT_SECONDS = 0.35
+logger = get_logger(__name__)
 
 
 async def clinical_extractor(state: dict[str, Any]) -> dict[str, Any]:
@@ -73,6 +77,15 @@ def _build_summary(text: str, symptom_schema: dict[str, Any]) -> str:
     return text[:120]
 
 
+def _node_timeout_seconds(context: ExecutionContext) -> float:
+    override = context.metadata.get("node_timeout_seconds")
+    if isinstance(override, (int, float)) and float(override) > 0:
+        return float(override)
+    if os.getenv("QWEN_API_KEY") == "test-key":
+        return _TEST_NODE_TIMEOUT_SECONDS
+    return _PROD_NODE_TIMEOUT_SECONDS
+
+
 class ConsultationCapability:
     """Produce intake summary and consultation status for downstream triage."""
 
@@ -98,12 +111,13 @@ class ConsultationCapability:
         try:
             extractor_result = await asyncio.wait_for(
                 clinical_extractor(state),
-                timeout=_NODE_TIMEOUT_SECONDS,
+                timeout=_node_timeout_seconds(context),
             )
             candidate = extractor_result.get("symptom_schema")
             if isinstance(candidate, dict):
                 symptom_schema = candidate
-        except Exception:
+        except Exception as exc:
+            logger.warning("consultation_fallback_to_heuristic", extra={"error": str(exc)})
             symptom_schema = None
 
         if symptom_schema is None:

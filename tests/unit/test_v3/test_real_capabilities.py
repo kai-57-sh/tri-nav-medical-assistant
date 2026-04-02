@@ -158,6 +158,88 @@ async def test_capabilities_are_no_longer_marked_as_v3_stub(
 
 
 @pytest.mark.asyncio
+async def test_evidence_external_tools_enabled_by_default_and_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_queries: list[str] = []
+
+    async def fake_ncbi_query_builder(state):
+        return {**state, "ncbi_query": '"head" AND "headache" AND 2016:3000[dpcr]'}
+
+    async def fake_ncbi_retriever_tool(state):
+        query = state.get("ncbi_query", "")
+        captured_queries.append(str(query))
+        if query:
+            return {
+                **state,
+                "evidence_selected": [{"pmid": "1", "title": "Mock", "year": "2024"}],
+            }
+        return {**state, "evidence_selected": []}
+
+    monkeypatch.setattr("src.capabilities.evidence.capability.ncbi_query_builder", fake_ncbi_query_builder)
+    monkeypatch.setattr("src.capabilities.evidence.capability.ncbi_retriever_tool", fake_ncbi_retriever_tool)
+
+    capability = EvidenceCapability()
+
+    enabled_context = _build_context()
+    enabled_result = await capability.run(enabled_context, await capability.plan(enabled_context))
+    assert enabled_result.payload["evidence_signal"] == "evidence_ready"
+
+    disabled_context = ExecutionContext(
+        request_id="req-v3-real-2",
+        session_id="sess-v3-real-2",
+        text="持续头痛并伴有轻微发热",
+        metadata={"enable_external_tools": False},
+    )
+    disabled_result = await capability.run(disabled_context, await capability.plan(disabled_context))
+    assert disabled_result.payload["evidence_signal"] == "evidence_pending"
+
+    assert captured_queries[0] != ""
+    assert captured_queries[1] == ""
+
+
+@pytest.mark.asyncio
+async def test_navigation_and_response_consume_metadata_triage_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_navigation_triage: dict[str, str] = {}
+
+    async def fake_navigator(state):
+        captured_navigation_triage["value"] = str(state.get("triage_level"))
+        return {**state, "navigation_result": None}
+
+    async def fake_weather_fetcher(state):
+        return {**state, "weather_alert": None}
+
+    async def fake_reasoning_verifier(state):
+        return {
+            **state,
+            "status": "final",
+            "final_response": f"triage={state.get('triage_level')}",
+        }
+
+    monkeypatch.setattr("src.capabilities.navigation.capability.navigator", fake_navigator)
+    monkeypatch.setattr("src.capabilities.navigation.capability.weather_fetcher", fake_weather_fetcher)
+    monkeypatch.setattr("src.capabilities.response.capability.reasoning_verifier", fake_reasoning_verifier)
+
+    context = ExecutionContext(
+        request_id="req-v3-real-3",
+        session_id="sess-v3-real-3",
+        text="症状轻微，正在好转",
+        metadata={"triage_level": "SELF_CARE"},
+    )
+
+    navigation = NavigationCapability()
+    navigation_result = await navigation.run(context, await navigation.plan(context))
+    assert captured_navigation_triage["value"] == "SELF_CARE"
+    assert navigation_result.payload["navigation_signal"] in {"routing_prepared", "routing_unavailable"}
+
+    response = ResponseCapability()
+    response_result = await response.run(context, await response.plan(context))
+    assert "triage=SELF_CARE" in str(response_result.payload["response"])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("capability", "expected_status"),
     [
