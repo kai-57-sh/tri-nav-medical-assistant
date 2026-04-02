@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.core.plugins.protocol import RuntimePlugin
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult
 
@@ -75,10 +76,10 @@ def create_builtin_plugins(
     *,
     trace_enabled: bool,
     medical_footer_enabled: bool,
-) -> list[object]:
+) -> list[RuntimePlugin]:
     """Create built-in plugin instances based on feature switches."""
 
-    plugins: list[object] = []
+    plugins: list[RuntimePlugin] = []
     if trace_enabled:
         plugins.append(TraceContextPlugin())
     if medical_footer_enabled:

@@ -8,8 +8,8 @@ from typing import Any, Protocol
 from src.core.coordinator.runtime_coordinator import RuntimeCoordinator
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.runtime.execution_context import ExecutionContext
+from src.core.runtime.query_engine import EventStoreProtocol
 from src.core.runtime.types import CapabilityResult, JSONValue
-from src.core.state.event_store import InMemoryEventStore
 
 
 class RuntimeInvokePayload(Protocol):
@@ -101,7 +101,7 @@ class RuntimeKernel:
 
 def build_runtime_kernel(
     *,
-    event_store: InMemoryEventStore,
+    event_store: EventStoreProtocol,
     plugins: RuntimePluginRegistry | None = None,
 ) -> RuntimeKernel:
     """Build RuntimeKernel with legacy v2 triage capability."""

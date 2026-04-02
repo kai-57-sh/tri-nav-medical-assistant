@@ -4,7 +4,9 @@ This module provides the FastAPI/LangServe entry point for the TriNav API.
 Exposes the triage workflow at POST /assistant/invoke.
 """
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI
@@ -24,7 +26,7 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Lifespan context manager for startup/shutdown."""
     logger.info("TriNav LangServe server starting up")
 
@@ -80,7 +82,7 @@ app.add_middleware(
 # Add LangServe routes
 add_routes(
     app,
-    chain,
+    cast(Any, chain),
     path="/assistant",
     input_type=dict,
     output_type=dict,
@@ -104,7 +106,7 @@ except Exception:  # pragma: no cover - defensive import guard
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, str]:
     """Health check endpoint for monitoring."""
     from .services.redis_service import get_redis_service
 
@@ -118,7 +120,7 @@ async def health_check():
 
 
 @app.get("/")
-async def root():
+async def root() -> dict[str, str | dict[str, str]]:
     """Root endpoint with API information."""
     return {
         "name": "TriNav Medical Triage Assistant",
@@ -132,7 +134,7 @@ async def root():
     }
 
 
-def main():
+def main() -> None:
     """Run the LangServe server."""
     uvicorn.run(
         "src.server:app",

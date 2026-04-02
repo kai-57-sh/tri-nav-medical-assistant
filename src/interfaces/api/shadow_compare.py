@@ -40,7 +40,7 @@ def _to_payload_dict(raw_result: Any) -> dict[str, Any]:
     if not isinstance(raw_result, JSONResponse):
         return {}
     try:
-        decoded = json.loads(raw_result.body.decode("utf-8"))
+        decoded = json.loads(bytes(raw_result.body).decode("utf-8"))
     except Exception:
         return {}
     return decoded if isinstance(decoded, dict) else {}

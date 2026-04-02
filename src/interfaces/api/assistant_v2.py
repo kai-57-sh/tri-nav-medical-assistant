@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -17,7 +17,7 @@ from src.core.coordinator.task_coordinator import TaskCoordinator, TaskSpec
 from src.core.plugins.builtin import create_builtin_plugins
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.runtime.execution_context import ExecutionContext
-from src.core.runtime.types import CapabilityResult
+from src.core.runtime.types import CapabilityResult, JSONValue
 from src.platform.policy.medical_safety_engine import SafetyResult
 from src.platform.runtime.kernel import (
     RuntimeKernel,
@@ -110,7 +110,7 @@ async def get_runtime_session_state(session_id: str) -> dict[str, Any]:
 def list_runtime_plugins() -> list[str]:
     """Expose registered runtime plugin names for diagnostics."""
 
-    return _build_runtime_plugin_registry().list_names()
+    return [str(name) for name in _build_runtime_plugin_registry().list_names()]
 
 
 async def get_runtime_store_summary() -> dict[str, int]:
@@ -327,32 +327,18 @@ async def _invoke_v3_task_coordinator(
         )
         return task_payload
 
+    def _task_spec_for(capability: Any, *, required: bool) -> TaskSpec:
+        async def _runner(_: ExecutionContext) -> dict[str, Any]:
+            return await _run_task_with_enriched_context(capability.name, capability)
+
+        return TaskSpec(name=capability.name, required=required, runner=_runner)
+
     task_specs = [
-        TaskSpec(
-            name=consultation.name,
-            required=True,
-            runner=lambda _ctx, name=consultation.name, cap=consultation: _run_task_with_enriched_context(name, cap),
-        ),
-        TaskSpec(
-            name=triage.name,
-            required=True,
-            runner=lambda _ctx, name=triage.name, cap=triage: _run_task_with_enriched_context(name, cap),
-        ),
-        TaskSpec(
-            name=evidence.name,
-            required=False,
-            runner=lambda _ctx, name=evidence.name, cap=evidence: _run_task_with_enriched_context(name, cap),
-        ),
-        TaskSpec(
-            name=navigation.name,
-            required=False,
-            runner=lambda _ctx, name=navigation.name, cap=navigation: _run_task_with_enriched_context(name, cap),
-        ),
-        TaskSpec(
-            name=response.name,
-            required=True,
-            runner=lambda _ctx, name=response.name, cap=response: _run_task_with_enriched_context(name, cap),
-        ),
+        _task_spec_for(consultation, required=True),
+        _task_spec_for(triage, required=True),
+        _task_spec_for(evidence, required=False),
+        _task_spec_for(navigation, required=False),
+        _task_spec_for(response, required=True),
     ]
     task_results = await TaskCoordinator(task_specs).run(context)
 
@@ -375,16 +361,21 @@ async def _invoke_v3_task_coordinator(
         cap_errors = [str(item) for item in raw_errors] if isinstance(raw_errors, list) else []
         if not task_result.get("success", False) and not cap_errors:
             cap_errors = [_extract_error_message(task_result.get("error"))]
+        payload_for_result = cast(dict[str, JSONValue], payload_dict)
+        provenance_for_result = cast(
+            dict[str, JSONValue],
+            {
+                "source": "v3_task_coordinator",
+                "task": task_name,
+                **provenance,
+            },
+        )
         capability_results.append(
             CapabilityResult(
                 name=task_name,
                 success=bool(task_result.get("success", False)),
-                payload=payload_dict,
-                provenance={
-                    "source": "v3_task_coordinator",
-                    "task": task_name,
-                    **provenance,
-                },
+                payload=payload_for_result,
+                provenance=provenance_for_result,
                 errors=cap_errors,
             )
         )
@@ -518,7 +509,7 @@ async def _error_response(
 ) -> JSONResponse:
     """Build a structured runtime error response."""
 
-    content = {
+    content: dict[str, Any] = {
         "status": "error",
         "session_id": session_id,
         "trace_id": trace_id,
@@ -609,7 +600,7 @@ def _response_json(
     """Decode JSONResponse content for SSE final payload emission."""
 
     try:
-        decoded = json.loads(response.body.decode("utf-8"))
+        decoded = json.loads(bytes(response.body).decode("utf-8"))
     except Exception as exc:
         return _stream_error_payload(
             session_id=session_id,
@@ -751,7 +742,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     resolved_session_id = output_payload.get("session_id")
     error_message = output_payload.get("error_message")
 
-    body = {
+    body: dict[str, Any] = {
         "status": response_status,
         "session_id": resolved_session_id if isinstance(resolved_session_id, str) else session_id,
         "trace_id": trace_id,

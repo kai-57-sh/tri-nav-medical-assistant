@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import cast
-
+from typing import Any, cast
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
 
-LegacyInvoker = Callable[..., Awaitable[dict[str, JSONValue]]]
+LegacyInvoker = Callable[..., Awaitable[dict[str, Any]]]
 
 
 class LegacyTriageCapability:
@@ -25,8 +24,8 @@ class LegacyTriageCapability:
             # Lazy import avoids requiring legacy chain dependencies at module import time.
             from src.chains.triage_chain import invoke_chain
 
-            self._invoker = invoke_chain
-        return self._invoker
+            self._invoker = cast(LegacyInvoker, invoke_chain)
+        return cast(LegacyInvoker, self._invoker)
 
     async def plan(self, context: ExecutionContext) -> dict[str, JSONValue]:
         _ = context
@@ -39,15 +38,12 @@ class LegacyTriageCapability:
     ) -> CapabilityResult:
         _ = plan
         invoker = self._resolve_invoker()
-        payload = cast(
-            dict[str, JSONValue],
-            await invoker(
-                session_id=context.session_id,
-                text=context.text,
-                image_base64=context.image_base64,
-                gps_lat=context.gps_lat,
-                gps_lng=context.gps_lng,
-            ),
+        payload = await invoker(
+            session_id=context.session_id,
+            text=context.text,
+            image_base64=context.image_base64,
+            gps_lat=context.gps_lat,
+            gps_lng=context.gps_lng,
         )
         error_message = payload.get("error_message")
         errors: list[str] = []

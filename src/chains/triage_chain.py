@@ -1,21 +1,23 @@
 """Main TriNav chain export for LangServe."""
+from typing import Any, cast
+
 from langchain_core.runnables import RunnableConfig
 
 from .graph.triage_graph import TriageState, build_graph
 
 # Build and compile the graph
-graph = build_graph()
-chain = graph
+chain: Any = build_graph()
+graph = chain
 
 
 async def invoke_chain(
     session_id: str,
     text: str,
-    image_base64: str = None,
-    gps_lat: float = None,
-    gps_lng: float = None,
-    config: RunnableConfig = None,
-) -> dict:
+    image_base64: str | None = None,
+    gps_lat: float | None = None,
+    gps_lng: float | None = None,
+    config: RunnableConfig | None = None,
+) -> dict[str, Any]:
     """Invoke the triage chain with user input.
 
     Args:
@@ -72,7 +74,7 @@ async def invoke_chain(
     }
 
     # Invoke the graph
-    result = await graph.ainvoke(initial_state, config=config)
+    result = cast(dict[str, Any], await graph.ainvoke(initial_state, config=config))
 
     # Extract final output
     return {
