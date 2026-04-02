@@ -1,6 +1,10 @@
 """Tests for assistant v2 server routes."""
 
+import os
+
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.server import app
 
