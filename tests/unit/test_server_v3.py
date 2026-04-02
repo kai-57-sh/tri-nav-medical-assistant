@@ -1,6 +1,5 @@
 """Tests for assistant v3 invoke route."""
 
-import json
 import os
 from types import SimpleNamespace
 from uuid import UUID
@@ -248,11 +247,15 @@ async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
     """V3 invoke should only inject runtime_mode and delegate to v2 invoke."""
 
     observed_payload: AssistantV2InvokePayload | None = None
+    calls = 0
+    delegated_response = JSONResponse({"status": "final", "response": "delegated"})
 
     async def fake_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
+        nonlocal calls
         nonlocal observed_payload
+        calls += 1
         observed_payload = payload
-        return JSONResponse({"status": "final", "response": "delegated"})
+        return delegated_response
 
     monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_assistant_v2", fake_invoke)
 
@@ -266,11 +269,11 @@ async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
 
     response = await invoke_assistant_v3(original_payload)
 
+    assert calls == 1
     assert observed_payload is not None
     assert observed_payload is not original_payload
     assert observed_payload.metadata["runtime_mode"] == "v3"
     assert observed_payload.metadata["foo"] == "bar"
     assert original_payload.metadata["runtime_mode"] == "legacy"
     assert original_payload.metadata["foo"] == "bar"
-    assert response.status_code == 200
-    assert json.loads(response.body) == {"status": "final", "response": "delegated"}
+    assert response is delegated_response
