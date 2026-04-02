@@ -205,7 +205,7 @@ class NCBIService:
             elif "authors" in data and data["authors"]:
                 # Fallback to first author's affiliation
                 authors = data["authors"]
-                if authors and len(authists) > 0:
+                if authors and len(authors) > 0:
                     source = "Unknown Journal"
 
             # Determine article type based on title/publication

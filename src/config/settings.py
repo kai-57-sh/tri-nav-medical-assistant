@@ -43,6 +43,13 @@ class Settings(BaseSettings):
         description="OTLP endpoint for OpenTelemetry"
     )
 
+    # TriNav v2 feature flags
+    v2_runtime_enabled: bool = Field(default=False, description="Enable TriNav v2 runtime")
+    v2_shadow_compare_enabled: bool = Field(
+        default=False,
+        description="Enable TriNav v2 shadow comparison"
+    )
+
     # Server Configuration
     server_host: str = Field(default="0.0.0.0", description="Server host")
     server_port: int = Field(default=8000, description="Server port")

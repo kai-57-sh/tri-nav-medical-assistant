@@ -50,7 +50,7 @@ async def vision_extract(state: Dict[str, Any]) -> Dict[str, Any]:
 
         visual_findings = await llm_service.extract_visual_features(
             image_base64=image_base64,
-            context_text=text  # Provide text context for better extraction
+            text=text  # Provide text context for better extraction
         )
 
         logger.info(
