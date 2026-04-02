@@ -3,10 +3,12 @@
 Checks if uploaded image meets quality requirements before processing.
 If quality is insufficient, marks image as ignored and proceeds with text-only workflow.
 """
-from typing import Dict, Any, Optional
 import base64
 import io
+from typing import Any
+
 from PIL import Image
+
 from src.chains.nodes.base import safe_node
 from src.utils.logging_config import get_logger
 
@@ -21,7 +23,7 @@ MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
 
 
 @safe_node("ImageQualityGate")
-async def image_quality_gate(state: Dict[str, Any]) -> Dict[str, Any]:
+async def image_quality_gate(state: dict[str, Any]) -> dict[str, Any]:
     """Validate image quality before vision processing.
 
     Checks:

@@ -1,5 +1,6 @@
 """Triage Merger node (Node 8)."""
-from typing import Dict, Any, List
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.utils.logging_config import get_logger
 
@@ -7,7 +8,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("TriageMerger")
-async def triage_merger(state: Dict[str, Any]) -> Dict[str, Any]:
+async def triage_merger(state: dict[str, Any]) -> dict[str, Any]:
     """Merge rule-based and LLM triage decisions.
 
     RULE WINS per constitution Principle I (more conservative).

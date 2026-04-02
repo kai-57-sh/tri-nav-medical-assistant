@@ -1,7 +1,8 @@
 """Input Validator node (Node 1)."""
-import uuid
 import re
-from typing import Dict, Any, Optional
+import uuid
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.config.settings import get_settings
 from src.utils.logging_config import get_logger
@@ -10,7 +11,7 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 
-def _coerce_coordinate(value: Any, label: str) -> Optional[float]:
+def _coerce_coordinate(value: Any, label: str) -> float | None:
     """Coerce coordinate input to float if possible."""
     if value is None:
         return None
@@ -30,7 +31,7 @@ def _coerce_coordinate(value: Any, label: str) -> Optional[float]:
 
 
 @safe_node("InputValidator")
-async def input_validator(state: Dict[str, Any]) -> Dict[str, Any]:
+async def input_validator(state: dict[str, Any]) -> dict[str, Any]:
     """Validate user input format and generate session ID if needed.
 
     Validation Rules:

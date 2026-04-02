@@ -15,7 +15,7 @@ class ToolRegistryProtocol(Protocol):
         """Invoke a registered tool and return raw handler output."""
 
 
-class ToolPermissionDenied(PermissionError):
+class ToolPermissionDeniedError(PermissionError):
     """Raised when policy denies a tool invocation."""
 
     def __init__(self, reason: str, *, decision_id: str) -> None:
@@ -52,6 +52,6 @@ class ToolGateway:
             context=normalized_context,
         )
         if not decision.allow:
-            raise ToolPermissionDenied(decision.reason, decision_id=decision.decision_id)
+            raise ToolPermissionDeniedError(decision.reason, decision_id=decision.decision_id)
 
         return await self._tool_registry.invoke_raw(tool_name, normalized_payload)

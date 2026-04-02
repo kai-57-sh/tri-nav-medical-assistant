@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from pydantic import BaseModel, Field, JsonValue, StringConstraints
+
 from src.core.runtime.stop_reason import StopReason
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]

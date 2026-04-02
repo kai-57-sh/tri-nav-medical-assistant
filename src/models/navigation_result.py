@@ -1,5 +1,6 @@
 """Navigation Result model for hospital recommendations and routes."""
-from typing import List, Dict, Any, Literal, Optional
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -36,10 +37,10 @@ class Hospital(BaseModel):
     rank: int = Field(..., ge=1, le=3, description="Priority order (1 = top recommendation)")
     name: str = Field(..., max_length=100, description="Hospital name")
     is_3a: bool = Field(..., description="Grade 3A (三甲) status (per FR-034)")
-    address: Optional[str] = Field(None, max_length=200, description="Hospital address")
-    distance_m: Optional[int] = Field(None, ge=0, description="Distance in meters")
-    location: Dict[str, float] = Field(..., description="GPS coordinates {lat, lng}")
-    phone: Optional[str] = Field(None, max_length=50, description="Hospital phone number")
+    address: str | None = Field(None, max_length=200, description="Hospital address")
+    distance_m: int | None = Field(None, ge=0, description="Distance in meters")
+    location: dict[str, float] = Field(..., description="GPS coordinates {lat, lng}")
+    phone: str | None = Field(None, max_length=50, description="Hospital phone number")
     reason: str = Field(
         ...,
         min_length=1,
@@ -74,7 +75,7 @@ class NavigationResult(BaseModel):
     )
 
     # === Hospital Recommendations ===
-    hospitals: List[Hospital] = Field(
+    hospitals: list[Hospital] = Field(
         ...,
         min_items=3,
         max_items=3,
@@ -83,7 +84,7 @@ class NavigationResult(BaseModel):
 
     @field_validator('hospitals')
     @classmethod
-    def exactly_three_hospitals(cls, v: List[Hospital]) -> List[Hospital]:
+    def exactly_three_hospitals(cls, v: list[Hospital]) -> list[Hospital]:
         """Enforce exactly 3 hospitals per FR-035."""
         if len(v) != 3:
             raise ValueError("Must have exactly 3 hospitals")
@@ -91,7 +92,7 @@ class NavigationResult(BaseModel):
 
     @field_validator('hospitals')
     @classmethod
-    def ranked_correctly(cls, v: List[Hospital]) -> List[Hospital]:
+    def ranked_correctly(cls, v: list[Hospital]) -> list[Hospital]:
         """Validate ranking sequence 1, 2, 3."""
         ranks = [h.rank for h in v]
         if sorted(ranks) != [1, 2, 3]:
@@ -99,7 +100,7 @@ class NavigationResult(BaseModel):
         return v
 
     # === Route Planning ===
-    route_plan: Optional[RoutePlan] = Field(
+    route_plan: RoutePlan | None = Field(
         default=None,
         description="Route to top-ranked hospital (per FR-036, optional)"
     )

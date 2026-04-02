@@ -4,9 +4,11 @@ Open-Meteo is a free open-source weather API that requires no API key.
 Official documentation: https://open-meteo.com/
 GitHub: https://github.com/open-meteo/open-meteo
 """
+from typing import Any
+
 import httpx
-from typing import Dict, Any, Optional, List
 from tenacity import retry, stop_after_attempt, wait_exponential
+
 from ..utils.logging_config import get_logger
 from ..utils.metrics import set_external_service_health
 
@@ -72,7 +74,7 @@ class OpenMeteoService:
         self,
         lat: float,
         lng: float
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Make HTTP request to Open-Meteo API with retry.
 
         Args:
@@ -125,7 +127,7 @@ class OpenMeteoService:
         self,
         lat: float,
         lng: float
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get weather information for location.
 
         Args:
@@ -146,7 +148,7 @@ class OpenMeteoService:
 
             if weather_data:
                 logger.info(
-                    f"Weather retrieved",
+                    "Weather retrieved",
                     extra={"lat": lat, "lng": lng, "weather": weather_data.get("condition")}
                 )
 
@@ -156,7 +158,7 @@ class OpenMeteoService:
             logger.error(f"Failed to parse weather data: {e}")
             return None
 
-    def _parse_weather_response(self, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_weather_response(self, result: dict[str, Any]) -> dict[str, Any] | None:
         """Parse Open-Meteo API response into standard format.
 
         Args:
@@ -291,7 +293,7 @@ class OpenMeteoService:
         temp: int,
         humidity: int,
         wind_scale: int
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate travel tips based on weather conditions.
 
         Args:
@@ -348,7 +350,7 @@ class OpenMeteoService:
 
 
 # Global Open-Meteo service instance
-_openmeteo_service: Optional[OpenMeteoService] = None
+_openmeteo_service: OpenMeteoService | None = None
 
 
 def get_openmeteo_service() -> OpenMeteoService:

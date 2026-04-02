@@ -1,5 +1,6 @@
 """Triage Classifier node (Node 7)."""
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.llm_service import get_llm_service
 from src.utils.logging_config import get_logger
@@ -8,7 +9,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("TriageClassifier")
-async def triage_classifier(state: Dict[str, Any]) -> Dict[str, Any]:
+async def triage_classifier(state: dict[str, Any]) -> dict[str, Any]:
     """Classify triage level using LLM with conservative bias.
 
     Prompt engineering: Conservative bias, avoid under-triaging.

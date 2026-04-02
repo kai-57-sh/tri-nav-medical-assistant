@@ -1,9 +1,10 @@
 """Response Composer helper function."""
-from typing import Dict, Any
+from typing import Any
+
 from src.utils.constants import HOTLINE_TIP
 
 
-def compose_response(state: Dict[str, Any]) -> str:
+def compose_response(state: dict[str, Any]) -> str:
     """Compose response from workflow state.
 
     Formats colloquial Chinese response with all required sections.

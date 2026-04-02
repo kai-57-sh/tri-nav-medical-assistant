@@ -1,10 +1,11 @@
 """Redis service for session management."""
 import json
-from typing import Optional, Dict, Any
 from datetime import datetime
-import asyncio
-from redis.asyncio import Redis, ConnectionPool
+from typing import Any
+
+from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import RedisError
+
 from ..config.settings import get_settings
 from ..utils.logging_config import get_logger
 from ..utils.metrics import set_external_service_health
@@ -19,8 +20,8 @@ class RedisService:
 
     def __init__(self):
         """Initialize Redis service with connection pooling."""
-        self.pool: Optional[ConnectionPool] = None
-        self.redis: Optional[Redis] = None
+        self.pool: ConnectionPool | None = None
+        self.redis: Redis | None = None
         self._healthy = False
 
     async def connect(self) -> None:
@@ -57,7 +58,7 @@ class RedisService:
     async def save_session(
         self,
         session_id: str,
-        state: Dict[str, Any],
+        state: dict[str, Any],
         ttl: int = None
     ) -> bool:
         """Save session state to Redis.
@@ -105,7 +106,7 @@ class RedisService:
             logger.error(f"Failed to save session {session_id}: {e}")
             return False
 
-    async def load_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def load_session(self, session_id: str) -> dict[str, Any] | None:
         """Load session state from Redis.
 
         Args:
@@ -163,7 +164,7 @@ class RedisService:
     async def cache_external_result(
         self,
         cache_key: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         ttl: int = 1800
     ) -> bool:
         """Cache external API result in Redis.
@@ -191,7 +192,7 @@ class RedisService:
             logger.error(f"Failed to cache external result {cache_key}: {e}")
             return False
 
-    async def load_cached_result(self, cache_key: str) -> Optional[Dict[str, Any]]:
+    async def load_cached_result(self, cache_key: str) -> dict[str, Any] | None:
         """Load cached external API result.
 
         Args:
@@ -226,7 +227,7 @@ class RedisService:
 
 
 # Global Redis service instance
-_redis_service: Optional[RedisService] = None
+_redis_service: RedisService | None = None
 
 
 async def get_redis_service() -> RedisService:

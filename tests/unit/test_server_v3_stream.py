@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
-import pytest
 
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 

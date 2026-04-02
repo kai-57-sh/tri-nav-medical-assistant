@@ -1,7 +1,9 @@
 """Base node decorator with error handling and logging."""
 import uuid
-from typing import Callable, Dict, Any
+from collections.abc import Callable
 from functools import wraps
+from typing import Any
+
 from src.utils.logging_config import get_logger, set_correlation_id
 from src.utils.metrics import record_error
 
@@ -20,7 +22,7 @@ def safe_node(node_name: str, raise_on_error: bool = False):
     """
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
+        async def wrapper(state: dict[str, Any]) -> dict[str, Any]:
             # Set correlation ID if not present
             session_id = state.get("session_id")
             if not session_id:

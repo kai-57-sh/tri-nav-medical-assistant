@@ -1,5 +1,6 @@
 """Final Status Router node (Node 18)."""
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.utils.constants import DISCLAIMER_TEXT
 from src.utils.logging_config import get_logger
@@ -8,7 +9,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("FinalStatusRouter")
-async def final_status_router(state: Dict[str, Any]) -> Dict[str, Any]:
+async def final_status_router(state: dict[str, Any]) -> dict[str, Any]:
     """Route to final output based on status.
 
     Prepares final response dict for API return.
@@ -29,7 +30,7 @@ async def final_status_router(state: Dict[str, Any]) -> Dict[str, Any]:
         clarify_questions = state.get("clarify_questions", [])
 
         logger.info(
-            f"Returning need_more_info response",
+            "Returning need_more_info response",
             extra={"session_id": session_id}
         )
 

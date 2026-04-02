@@ -1,7 +1,9 @@
 """Unit tests for clarification_generator node."""
+from unittest.mock import AsyncMock, patch
+
 import pytest
+
 from src.chains.nodes.clarification_generator import clarification_generator
-from unittest.mock import patch, AsyncMock
 
 
 @pytest.mark.asyncio

@@ -3,8 +3,8 @@
 import os
 from uuid import UUID
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 

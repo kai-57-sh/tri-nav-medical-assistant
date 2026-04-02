@@ -1,6 +1,7 @@
 """Session State model for Redis storage."""
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -23,31 +24,31 @@ class SessionState(BaseModel):
     )
 
     # === Clinical Data (Structured ONLY) ===
-    symptom_schema: Optional[Dict[str, Any]] = Field(
+    symptom_schema: dict[str, Any] | None = Field(
         None,
         description="Extracted symptom information (body part, duration, severity, etc.)"
     )
-    clarify_questions: List[str] = Field(
+    clarify_questions: list[str] = Field(
         default_factory=list,
         description="Questions asked in previous turns"
     )
-    triage_level: Optional[str] = Field(
+    triage_level: str | None = Field(
         None,
         pattern="^(EMERGENCY|URGENT|ROUTINE|SELF_CARE)$",
         description="Current triage assessment"
     )
-    case_domain: Optional[str] = Field(
+    case_domain: str | None = Field(
         None,
         pattern="^(dermatology|trauma|respiratory|gastro|neuro|urology|other)$",
         description="Medical specialty"
     )
 
     # === Cache References (to avoid re-fetching) ===
-    evidence_cache_key: Optional[str] = Field(
+    evidence_cache_key: str | None = Field(
         None,
         description="Reference to cached NCBI evidence"
     )
-    navigation_cache_key: Optional[str] = Field(
+    navigation_cache_key: str | None = Field(
         None,
         description="Reference to cached hospital search results"
     )

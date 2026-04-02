@@ -1,5 +1,5 @@
 """Evidence model for literature references."""
-from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -20,7 +20,7 @@ class Evidence(BaseModel):
     )
 
     # === Relevance ===
-    note: Optional[str] = Field(None, max_length=500, description="Brief relevance explanation")
+    note: str | None = Field(None, max_length=500, description="Brief relevance explanation")
 
     class Config:
         json_schema_extra = {

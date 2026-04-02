@@ -1,5 +1,6 @@
 """Triage Assessment model for medical triage decisions."""
-from typing import List, Literal
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -23,7 +24,7 @@ class TriageAssessment(BaseModel):
     )
 
     # === Recommendations ===
-    recommended_departments: List[str] = Field(
+    recommended_departments: list[str] = Field(
         ...,
         min_items=1,
         max_items=5,
@@ -31,7 +32,7 @@ class TriageAssessment(BaseModel):
     )
 
     # === Possible Causes (Qualified) ===
-    possible_causes: List[str] = Field(
+    possible_causes: list[str] = Field(
         ...,
         min_items=0,
         max_items=3,
@@ -40,7 +41,7 @@ class TriageAssessment(BaseModel):
 
     @field_validator('possible_causes')
     @classmethod
-    def must_use_qualified_language(cls, v: List[str]) -> List[str]:
+    def must_use_qualified_language(cls, v: list[str]) -> list[str]:
         """Enforce '疑似' or '可能' qualifiers per FR-020, CT-001."""
         for cause in v:
             if not any(q in cause for q in ["疑似", "可能", "相关"]):
@@ -48,7 +49,7 @@ class TriageAssessment(BaseModel):
         return v
 
     # === Self-Care Guidance ===
-    self_care_tips: List[str] = Field(
+    self_care_tips: list[str] = Field(
         ...,
         min_items=0,
         max_items=10,
@@ -57,7 +58,7 @@ class TriageAssessment(BaseModel):
 
     @field_validator('self_care_tips')
     @classmethod
-    def no_prescriptive_language(cls, v: List[str]) -> List[str]:
+    def no_prescriptive_language(cls, v: list[str]) -> list[str]:
         """Prohibit drug dosages or treatment protocols per FR-021, CT-002."""
         prohibited_patterns = ["mg", "每次", "剂量", "片", "服用", "用药"]
         for tip in v:
@@ -66,7 +67,7 @@ class TriageAssessment(BaseModel):
         return v
 
     # === Red Flags (Warning Signs) ===
-    red_flags: List[str] = Field(
+    red_flags: list[str] = Field(
         ...,
         min_items=0,
         max_items=10,
@@ -74,7 +75,7 @@ class TriageAssessment(BaseModel):
     )
 
     # === Internal State ===
-    red_flags_hit: List[str] = Field(
+    red_flags_hit: list[str] = Field(
         default_factory=list,
         description="IDs of triggered red flag rules (for audit per FR-066)"
     )

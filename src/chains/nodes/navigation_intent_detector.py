@@ -2,7 +2,8 @@
 
 Detects if user's primary intent is hospital navigation vs medical triage.
 """
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.utils.logging_config import get_logger
 
@@ -22,7 +23,7 @@ SHORT_REQUEST_THRESHOLD = 15  # 字符数
 
 
 @safe_node("NavigationIntentDetector")
-async def navigation_intent_detector(state: Dict[str, Any]) -> Dict[str, Any]:
+async def navigation_intent_detector(state: dict[str, Any]) -> dict[str, Any]:
     """检测用户是否仅为医院导航请求。
 
     判断标准：

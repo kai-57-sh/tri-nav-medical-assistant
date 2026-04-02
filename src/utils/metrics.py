@@ -1,7 +1,13 @@
 """Prometheus metrics collection for TriNav application."""
-from typing import Dict
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-from prometheus_client import CollectorRegistry
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
+
 from .logging_config import get_logger
 
 logger = get_logger(__name__)

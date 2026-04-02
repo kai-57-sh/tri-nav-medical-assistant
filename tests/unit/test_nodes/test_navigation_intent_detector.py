@@ -1,5 +1,6 @@
 """Unit tests for navigation_intent_detector node."""
 import pytest
+
 from src.chains.nodes.navigation_intent_detector import navigation_intent_detector
 
 

@@ -13,7 +13,7 @@ from src.core.runtime.types import CapabilityResult
 class RuntimePluginRegistry:
     """Registers runtime plugins and applies before/after hooks in order."""
 
-    def __init__(self, *, tool_gateway: "ToolGatewayProtocol | None" = None) -> None:
+    def __init__(self, *, tool_gateway: ToolGatewayProtocol | None = None) -> None:
         self._plugins: dict[str, RuntimePlugin] = {}
         self._tool_gateway = tool_gateway
 
@@ -41,12 +41,12 @@ class RuntimePluginRegistry:
         return list(self._plugins.keys())
 
     @property
-    def tool_gateway(self) -> "ToolGatewayProtocol | None":
+    def tool_gateway(self) -> ToolGatewayProtocol | None:
         """Return configured tool gateway, if attached."""
 
         return self._tool_gateway
 
-    def attach_tool_gateway(self, gateway: "ToolGatewayProtocol") -> None:
+    def attach_tool_gateway(self, gateway: ToolGatewayProtocol) -> None:
         """Attach a tool gateway used by invoke_tool helper."""
 
         self._tool_gateway = gateway

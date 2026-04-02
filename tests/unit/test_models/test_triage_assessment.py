@@ -229,7 +229,7 @@ class TestTriageAssessment:
             )
         assert "Self-care tip cannot contain prescriptive language" in str(exc_info.value)
 
-    def test_triage_assessment_self_care_tips_fail_次_dosage(self):
+    def test_triage_assessment_self_care_tips_fail_ci_dosage(self):
         """Test validator: '每次' is prescriptive."""
         with pytest.raises(ValidationError) as exc_info:
             TriageAssessment(
@@ -257,7 +257,7 @@ class TestTriageAssessment:
             )
         assert "Self-care tip cannot contain prescriptive language" in str(exc_info.value)
 
-    def test_triage_assessment_self_care_tips_fail_片(self):
+    def test_triage_assessment_self_care_tips_fail_tablet_word(self):
         """Test validator: '片' is prescriptive."""
         with pytest.raises(ValidationError) as exc_info:
             TriageAssessment(
@@ -271,7 +271,7 @@ class TestTriageAssessment:
             )
         assert "Self-care tip cannot contain prescriptive language" in str(exc_info.value)
 
-    def test_triage_assessment_self_care_tips_fail_服用(self):
+    def test_triage_assessment_self_care_tips_fail_take_medicine_word(self):
         """Test validator: '服用' is prescriptive."""
         with pytest.raises(ValidationError) as exc_info:
             TriageAssessment(
@@ -285,7 +285,7 @@ class TestTriageAssessment:
             )
         assert "Self-care tip cannot contain prescriptive language" in str(exc_info.value)
 
-    def test_triage_assessment_self_care_tips_fail_用药(self):
+    def test_triage_assessment_self_care_tips_fail_medication_word(self):
         """Test validator: '用药' is prescriptive."""
         with pytest.raises(ValidationError) as exc_info:
             TriageAssessment(

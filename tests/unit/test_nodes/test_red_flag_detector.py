@@ -1,5 +1,6 @@
 """Unit tests for red_flag_detector node."""
 import pytest
+
 from src.chains.nodes.red_flag_detector import red_flag_detector
 
 

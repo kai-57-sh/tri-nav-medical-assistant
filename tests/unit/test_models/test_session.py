@@ -1,6 +1,7 @@
 """Tests for SessionState model and validation rules."""
-import pytest
 from datetime import datetime
+
+import pytest
 from pydantic import ValidationError
 
 from src.models.session import SessionState

@@ -1,6 +1,8 @@
 """Unit tests for input_validator node."""
-import pytest
 import uuid
+
+import pytest
+
 from src.chains.nodes.input_validator import input_validator
 
 

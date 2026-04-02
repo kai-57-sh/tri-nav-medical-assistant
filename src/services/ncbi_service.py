@@ -1,9 +1,11 @@
 """NCBI service for PubMed literature retrieval."""
-import httpx
 import re
-from typing import List, Dict, Any, Optional
-from tenacity import retry, stop_after_attempt, wait_exponential
 from datetime import datetime
+from typing import Any
+
+import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 from ..config.settings import get_settings
 from ..utils.logging_config import get_logger
 from ..utils.metrics import set_external_service_health
@@ -34,8 +36,8 @@ class NCBIService:
     async def _make_request(
         self,
         endpoint: str,
-        params: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        params: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Make HTTP request to NCBI E-utilities API with retry.
 
         Args:
@@ -84,7 +86,7 @@ class NCBIService:
         self,
         query: str,
         max_results: int = 20
-    ) -> List[str]:
+    ) -> list[str]:
         """Search PubMed for articles matching query.
 
         Filters: Last 10 years, preference for guidelines/reviews per FR-030.
@@ -128,8 +130,8 @@ class NCBIService:
 
     async def fetch_article_details(
         self,
-        pmid_list: List[str]
-    ) -> List[Dict[str, Any]]:
+        pmid_list: list[str]
+    ) -> list[dict[str, Any]]:
         """Fetch detailed information for list of PMIDs.
 
         Args:
@@ -177,8 +179,8 @@ class NCBIService:
     def _parse_article(
         self,
         pmid: str,
-        data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Parse article data from NCBI response.
 
         Args:
@@ -236,7 +238,6 @@ class NCBIService:
             Article type string
         """
         title_lower = title.lower()
-        source_lower = source.lower()
 
         # Check for guidelines
         if any(keyword in title_lower for keyword in [
@@ -275,7 +276,7 @@ class NCBIService:
         self,
         query: str,
         max_results: int = 8
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search PubMed and retrieve article details in one call.
 
         Args:
@@ -323,7 +324,7 @@ class NCBIService:
 
 
 # Global NCBI service instance
-_ncbi_service: Optional[NCBIService] = None
+_ncbi_service: NCBIService | None = None
 
 
 def get_ncbi_service() -> NCBIService:

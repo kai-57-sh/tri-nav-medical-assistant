@@ -4,9 +4,9 @@ import os
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-import pytest
 
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 

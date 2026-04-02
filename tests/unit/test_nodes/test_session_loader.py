@@ -1,7 +1,9 @@
 """Unit tests for session_loader node."""
-import pytest
-from src.chains.nodes.session_loader import session_load
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from src.chains.nodes.session_loader import session_load
 
 
 @pytest.mark.asyncio

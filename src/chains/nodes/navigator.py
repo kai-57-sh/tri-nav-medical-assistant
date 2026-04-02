@@ -3,7 +3,8 @@
 Hospital search and route planning using Amap service.
 Returns 3 hospitals with route planning per FR-034, FR-035, FR-036.
 """
-from typing import Dict, Any, Optional
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.amap_service import get_amap_service
 from src.services.redis_service import get_redis_service
@@ -13,7 +14,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("Navigator")
-async def navigator(state: Dict[str, Any]) -> Dict[str, Any]:
+async def navigator(state: dict[str, Any]) -> dict[str, Any]:
     """Search hospitals and plan routes using Amap service.
 
     Performs:
@@ -35,8 +36,6 @@ async def navigator(state: Dict[str, Any]) -> Dict[str, Any]:
     gps_lng = state.get("gps_lng")
     session_id = state.get("session_id")
     case_domain = state.get("case_domain")
-    departments = state.get("recommended_departments", [])
-
     # Skip navigation for SELF_CARE or missing GPS
     if triage_level == "SELF_CARE":
         logger.info(

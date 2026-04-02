@@ -4,32 +4,32 @@ This module builds the 18-node triage workflow using LangGraph 1.0.5+.
 State is passed between nodes as a TypedDict, with conditional routing
 based on triage decisions.
 """
-from typing import TypedDict, Dict, Any, List, Optional, Literal
-from langgraph.graph import StateGraph, END
+from typing import Any, Literal, TypedDict
 
+from langgraph.graph import END, StateGraph
+
+from ...utils.logging_config import get_logger
 from ..nodes import (
-    input_validator,
-    session_load,
-    navigation_intent_detector,
-    image_quality_gate,
-    vision_extract,
-    clinical_extractor,
-    red_flag_detector,
-    triage_classifier,
-    triage_merger,
     clarification_generator,
-    session_save,
+    clinical_extractor,
+    domain_classifier,
     evidence_router,
+    final_status_router,
+    image_quality_gate,
+    input_validator,
+    navigation_intent_detector,
+    navigator,
     ncbi_query_builder,
     ncbi_retriever_tool,
-    domain_classifier,
-    navigator,
-    weather_fetcher,
     reasoning_verifier,
-    compose_response,
-    final_status_router,
+    red_flag_detector,
+    session_load,
+    session_save,
+    triage_classifier,
+    triage_merger,
+    vision_extract,
+    weather_fetcher,
 )
-from ...utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -42,34 +42,34 @@ class TriageState(TypedDict):
     # Input fields
     session_id: str
     text: str
-    image_base64: Optional[str]
-    gps_lat: Optional[float]
-    gps_lng: Optional[float]
+    image_base64: str | None
+    gps_lat: float | None
+    gps_lng: float | None
 
     # Session state
     turn_count: int
-    symptom_schema: Optional[Dict[str, Any]]
-    clarify_questions: List[str]
+    symptom_schema: dict[str, Any] | None
+    clarify_questions: list[str]
     navigation_only: bool  # 纯导航请求标志（无需重新分诊）
 
     # Triage decision
-    triage_level: Optional[Literal["EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"]]
-    triage_source: Optional[str]  # "rule_engine", "llm", "merged"
-    triage_reason: Optional[str]
-    recommended_departments: List[str]
-    possible_causes: List[str]
-    self_care_tips: List[str]
-    red_flags: List[str]
+    triage_level: Literal["EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"] | None
+    triage_source: str | None  # "rule_engine", "llm", "merged"
+    triage_reason: str | None
+    recommended_departments: list[str]
+    possible_causes: list[str]
+    self_care_tips: list[str]
+    red_flags: list[str]
 
     # Red flag detection (rule-based)
-    rule_triage_level: Optional[str]
-    llm_triage_level: Optional[str]
-    llm_triage_reason: Optional[str]
-    llm_recommended_departments: List[str]
-    llm_possible_causes: List[str]
-    llm_self_care_tips: List[str]
-    llm_red_flags: List[str]
-    red_flags_hit: List[str]
+    rule_triage_level: str | None
+    llm_triage_level: str | None
+    llm_triage_reason: str | None
+    llm_recommended_departments: list[str]
+    llm_possible_causes: list[str]
+    llm_self_care_tips: list[str]
+    llm_red_flags: list[str]
+    red_flags_hit: list[str]
 
     # Clarification
     need_clarify: bool
@@ -82,18 +82,18 @@ class TriageState(TypedDict):
     ncbi_query: str
 
     # External service results
-    visual_findings: Optional[Dict[str, Any]]
-    evidence_selected: Optional[List[Dict[str, Any]]]
-    navigation_result: Optional[Dict[str, Any]]
-    weather_alert: Optional[Dict[str, Any]]
-    case_domain: Optional[str]
+    visual_findings: dict[str, Any] | None
+    evidence_selected: list[dict[str, Any]] | None
+    navigation_result: dict[str, Any] | None
+    weather_alert: dict[str, Any] | None
+    case_domain: str | None
 
     # Final output
-    final_response: Optional[str]
-    response: Optional[str]
-    disclaimer: Optional[str]
+    final_response: str | None
+    response: str | None
+    disclaimer: str | None
     status: Literal["final", "need_more_info", "error"]
-    error_message: Optional[str]
+    error_message: str | None
 
 
 async def _should_skip_ncbi(state: TriageState) -> bool:

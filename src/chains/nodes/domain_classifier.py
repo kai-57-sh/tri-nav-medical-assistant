@@ -3,7 +3,8 @@
 Classifies the medical specialty domain for the case.
 Used for routing to appropriate departments and improving NCBI queries.
 """
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.llm_service import get_llm_service
 from src.utils.logging_config import get_logger
@@ -12,7 +13,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("DomainClassifier")
-async def domain_classifier(state: Dict[str, Any]) -> Dict[str, Any]:
+async def domain_classifier(state: dict[str, Any]) -> dict[str, Any]:
     """Classify medical specialty domain from symptom schema.
 
     Uses LLM to determine which medical specialty is most relevant:
@@ -37,7 +38,6 @@ async def domain_classifier(state: Dict[str, Any]) -> Dict[str, Any]:
         Updated state with case_domain string
     """
     symptom_schema = state.get("symptom_schema", {})
-    triage_level = state.get("triage_level")
     session_id = state.get("session_id")
 
     if not symptom_schema:

@@ -1,6 +1,4 @@
 """Configuration management for TriNav application."""
-import os
-from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,7 +25,7 @@ class Settings(BaseSettings):
     redis_session_ttl: int = Field(default=3600, description="Session TTL in seconds (60 minutes)")
 
     # External APIs
-    amap_api_key: Optional[str] = Field(default=None, description="Amap API key for hospital navigation")
+    amap_api_key: str | None = Field(default=None, description="Amap API key for hospital navigation")
     # Weather API configuration removed - using Open-Meteo (no auth required)
     ncbi_base_url: str = Field(
         default="https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
@@ -36,9 +34,9 @@ class Settings(BaseSettings):
 
     # Observability
     langchain_tracing_v2: bool = Field(default=False, description="Enable LangSmith tracing")
-    langchain_api_key: Optional[str] = Field(default=None, description="LangSmith API key")
+    langchain_api_key: str | None = Field(default=None, description="LangSmith API key")
     langchain_project: str = Field(default="trinav-dev", description="LangSmith project name")
-    otel_exporter_otlp_endpoint: Optional[str] = Field(
+    otel_exporter_otlp_endpoint: str | None = Field(
         default=None,
         description="OTLP endpoint for OpenTelemetry"
     )
@@ -135,7 +133,7 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
-_settings: Optional[Settings] = None
+_settings: Settings | None = None
 
 
 def get_settings() -> Settings:

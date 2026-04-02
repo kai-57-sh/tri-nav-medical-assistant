@@ -3,7 +3,8 @@
 Extracts visual features from medical images using Qwen-VL model.
 Only processes images that passed quality gate.
 """
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.llm_service import get_llm_service
 from src.utils.logging_config import get_logger
@@ -12,7 +13,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("VisionExtract")
-async def vision_extract(state: Dict[str, Any]) -> Dict[str, Any]:
+async def vision_extract(state: dict[str, Any]) -> dict[str, Any]:
     """Extract visual findings from image using Qwen-VL model.
 
     Only runs if image passed quality gate (image_as_valid=True).

@@ -3,16 +3,16 @@
 This module provides the FastAPI/LangServe entry point for the TriNav API.
 Exposes the triage workflow at POST /assistant/invoke.
 """
-from contextlib import asynccontextmanager
 import os
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langserve import add_routes
 
-from .config.settings import get_settings
 from .chains.triage_chain import chain
+from .config.settings import get_settings
 from .utils.logging_config import get_logger, setup_logging
 from .utils.metrics import external_service_health
 
@@ -29,8 +29,8 @@ async def lifespan(app: FastAPI):
     logger.info("TriNav LangServe server starting up")
 
     # Initialize services on startup
-    from .services.redis_service import get_redis_service
     from .services.llm_service import get_llm_service
+    from .services.redis_service import get_redis_service
 
     # Warm up Redis connection
     try:
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
 
     # Warm up LLM service
     try:
-        llm = get_llm_service()
+        get_llm_service()
         external_service_health.labels(service_name="llm").set(1)
         logger.info("LLM service initialized")
     except Exception as e:
@@ -98,7 +98,7 @@ try:
     app.include_router(runtime_admin_v3_router)
     app.include_router(shadow_compare_router)
     app.include_router(shadow_compare_v3_router)
-except Exception as exc:  # pragma: no cover - defensive import guard
+except Exception:  # pragma: no cover - defensive import guard
     logger.exception("api router registration failed")
     raise
 

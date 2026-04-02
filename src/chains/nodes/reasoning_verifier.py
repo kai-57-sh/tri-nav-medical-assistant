@@ -1,16 +1,17 @@
 """Reasoning Verifier node (Node 17)."""
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.chains.nodes.response_composer import compose_response
 from src.services.llm_service import get_llm_service
-from src.utils.safety_filters import check_prohibited_content
 from src.utils.logging_config import get_logger
+from src.utils.safety_filters import check_prohibited_content
 
 logger = get_logger(__name__)
 
 
 @safe_node("ReasoningVerifier")
-async def reasoning_verifier(state: Dict[str, Any]) -> Dict[str, Any]:
+async def reasoning_verifier(state: dict[str, Any]) -> dict[str, Any]:
     """Dual safety verification: rule-based + LLM reasoning verifier.
 
     1. Rule-based: Check for prohibited content patterns
@@ -48,7 +49,7 @@ async def reasoning_verifier(state: Dict[str, Any]) -> Dict[str, Any]:
         else:
             # Use sanitized version even if not perfectly safe
             final_response = verification.get("sanitized_content", draft_response)
-            logger.warning(f"Response has violations, using sanitized version")
+            logger.warning("Response has violations, using sanitized version")
 
     else:
         # No violations detected

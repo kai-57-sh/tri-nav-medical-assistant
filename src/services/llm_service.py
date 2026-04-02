@@ -1,15 +1,12 @@
 """LLM service for Qwen model integration via OpenAI-compatible API."""
 import json
-from typing import List, Dict, Any, Optional
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type
-)
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from typing import Any
+
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 from ..config.settings import get_settings
 from ..utils.logging_config import get_logger
 from ..utils.metrics import set_external_service_health
@@ -25,10 +22,10 @@ class LLMService:
     def __init__(self):
         """Initialize LLM service with multiple model instances."""
         self._healthy = True
-        self._extractor: Optional[BaseChatModel] = None
-        self._vision: Optional[BaseChatModel] = None
-        self._verifier: Optional[BaseChatModel] = None
-        self._triage: Optional[BaseChatModel] = None
+        self._extractor: BaseChatModel | None = None
+        self._vision: BaseChatModel | None = None
+        self._verifier: BaseChatModel | None = None
+        self._triage: BaseChatModel | None = None
 
         self._setup_models()
 
@@ -84,7 +81,7 @@ class LLMService:
     async def _invoke_with_retry(
         self,
         model: BaseChatModel,
-        messages: List[Any],
+        messages: list[Any],
         max_retries: int = 2
     ) -> str:
         """Invoke LLM with retry logic per FR-049.
@@ -112,8 +109,8 @@ class LLMService:
     async def extract_symptoms(
         self,
         text: str,
-        visual_findings: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        visual_findings: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Extract structured symptom schema from text.
 
         Uses low temperature (0.1) for consistent extraction.
@@ -190,8 +187,8 @@ class LLMService:
 
     async def classify_triage(
         self,
-        symptom_schema: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        symptom_schema: dict[str, Any]
+    ) -> dict[str, Any]:
         """Classify triage level using LLM.
 
         Uses medium temperature (0.3) for nuanced classification.
@@ -276,7 +273,7 @@ class LLMService:
     async def verify_safety(
         self,
         draft_response: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Verify response for safety violations using LLM reasoning verifier.
 
         Uses zero temperature (0.0) for strict safety checking.
@@ -352,8 +349,8 @@ class LLMService:
     async def extract_visual_features(
         self,
         image_base64: str,
-        text: Optional[str] = None
-    ) -> Dict[str, Any]:
+        text: str | None = None
+    ) -> dict[str, Any]:
         """Extract visual features from image using Qwen-VL.
 
         Args:
@@ -432,7 +429,7 @@ class LLMService:
 
     async def classify_domain(
         self,
-        symptom_schema: Dict[str, Any]
+        symptom_schema: dict[str, Any]
     ) -> str:
         """Classify medical specialty domain.
 
@@ -491,9 +488,9 @@ class LLMService:
 
     async def generate_clarification_questions(
         self,
-        symptom_schema: Dict[str, Any],
+        symptom_schema: dict[str, Any],
         turn_count: int
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate clarification questions.
 
         Args:
@@ -558,7 +555,7 @@ class LLMService:
 
 
 # Global LLM service instance
-_llm_service: Optional[LLMService] = None
+_llm_service: LLMService | None = None
 
 
 def get_llm_service() -> LLMService:

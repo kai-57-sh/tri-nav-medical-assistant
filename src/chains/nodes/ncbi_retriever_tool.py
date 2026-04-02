@@ -3,7 +3,8 @@
 Retrieves and ranks PubMed literature using NCBI service.
 Returns top 5-8 articles per FR-031 with priority ordering.
 """
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.ncbi_service import get_ncbi_service
 from src.services.redis_service import get_redis_service
@@ -13,7 +14,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("NCBIRetriever")
-async def ncbi_retriever_tool(state: Dict[str, Any]) -> Dict[str, Any]:
+async def ncbi_retriever_tool(state: dict[str, Any]) -> dict[str, Any]:
     """Retrieve and rank PubMed literature.
 
     Uses NCBI service to search PubMed with the built query.

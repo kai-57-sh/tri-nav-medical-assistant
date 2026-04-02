@@ -1,11 +1,11 @@
 """Permission rule models for TriNav v2."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from fnmatch import fnmatchcase
 
 
-class PermissionAction(str, Enum):
+class PermissionAction(StrEnum):
     """Supported permission decisions."""
 
     ALLOW = "allow"

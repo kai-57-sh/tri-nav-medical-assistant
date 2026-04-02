@@ -15,7 +15,6 @@ from src.capabilities import (
 )
 from src.core.runtime.execution_context import ExecutionContext
 
-
 SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
 
 

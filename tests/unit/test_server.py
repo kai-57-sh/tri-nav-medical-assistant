@@ -1,6 +1,7 @@
 """Tests for FastAPI server endpoints and lifespan."""
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
 from src.server import app, lifespan

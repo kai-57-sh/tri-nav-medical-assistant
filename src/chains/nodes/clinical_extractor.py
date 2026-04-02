@@ -1,5 +1,6 @@
 """Clinical Extractor node (Node 5)."""
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.llm_service import get_llm_service
 from src.utils.logging_config import get_logger
@@ -8,7 +9,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("ClinicalExtractor")
-async def clinical_extractor(state: Dict[str, Any]) -> Dict[str, Any]:
+async def clinical_extractor(state: dict[str, Any]) -> dict[str, Any]:
     """Extract structured symptom schema from user input.
 
     Combines text and visual findings (if available) into unified schema.

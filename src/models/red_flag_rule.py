@@ -1,5 +1,6 @@
 """Red Flag Rule model for emergency symptom detection."""
-from typing import List, Dict, Any, Literal
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -33,7 +34,7 @@ class RedFlagRule(BaseModel):
     version: str = Field(..., description="Rule version for traceability (per FR-054)")
 
     # === Rule Logic ===
-    conditions: List[RuleCondition] = Field(
+    conditions: list[RuleCondition] = Field(
         ...,
         min_items=1,
         description="Rule conditions (AND logic between conditions)"
@@ -50,7 +51,7 @@ class RedFlagRule(BaseModel):
         max_length=500,
         description="Explanation to user"
     )
-    department: List[str] = Field(
+    department: list[str] = Field(
         ...,
         min_items=1,
         description="Recommended departments (typically ['急诊'])"

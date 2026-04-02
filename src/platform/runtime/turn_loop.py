@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.platform.runtime.kernel import RuntimeInvokePayload, RuntimeKernel, RuntimeKernelInvokeResult
+from src.platform.runtime.kernel import (
+    RuntimeInvokePayload,
+    RuntimeKernel,
+    RuntimeKernelInvokeResult,
+)
 
 
 @dataclass(slots=True)

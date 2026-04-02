@@ -1,6 +1,7 @@
 """Main TriNav chain export for LangServe."""
 from langchain_core.runnables import RunnableConfig
-from .graph.triage_graph import build_graph, TriageState
+
+from .graph.triage_graph import TriageState, build_graph
 
 # Build and compile the graph
 graph = build_graph()

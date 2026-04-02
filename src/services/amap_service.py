@@ -1,7 +1,9 @@
 """Amap service for hospital navigation and route planning."""
+from typing import Any
+
 import httpx
-from typing import List, Dict, Any, Optional, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential
+
 from ..config.settings import get_settings
 from ..utils.logging_config import get_logger
 from ..utils.metrics import set_external_service_health
@@ -31,8 +33,8 @@ class AmapService:
     async def _make_request(
         self,
         endpoint: str,
-        params: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        params: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Make HTTP request to Amap API with retry.
 
         Args:
@@ -88,7 +90,7 @@ class AmapService:
         lat: float,
         lng: float,
         radius_km: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search hospitals near given location.
 
         Returns exactly 3 hospitals: Top1 + 2 alternatives per FR-035.
@@ -172,10 +174,10 @@ class AmapService:
 
     def _parse_hospital(
         self,
-        poi: Dict[str, Any],
+        poi: dict[str, Any],
         user_lat: float,
         user_lng: float
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Parse hospital POI data.
 
         Args:
@@ -246,7 +248,7 @@ class AmapService:
 
         return False
 
-    def _generate_ranking_reason(self, hospital: Dict[str, Any]) -> str:
+    def _generate_ranking_reason(self, hospital: dict[str, Any]) -> str:
         """Generate ranking rationale for hospital.
 
         Args:
@@ -279,7 +281,7 @@ class AmapService:
         origin_lng: float,
         dest_lat: float,
         dest_lng: float
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get route plan from origin to destination.
 
         Args:
@@ -344,7 +346,7 @@ class AmapService:
 
 
 # Global Amap service instance
-_amap_service: Optional[AmapService] = None
+_amap_service: AmapService | None = None
 
 
 def get_amap_service() -> AmapService:

@@ -18,17 +18,19 @@ from src.core.plugins.builtin import create_builtin_plugins
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult
+from src.platform.policy.medical_safety_engine import SafetyResult
+from src.platform.runtime.kernel import (
+    RuntimeKernel,
+    RuntimeKernelInvokeError,
+)
+from src.platform.runtime.kernel import (
+    build_runtime_kernel as _build_runtime_kernel,
+)
 from src.platform.state.event_repository import RuntimeEventRepository, build_event_repository
 from src.platform.state.snapshot_repository import (
     RuntimeSnapshotRepository,
     build_snapshot_repository,
 )
-from src.platform.runtime.kernel import (
-    RuntimeKernel,
-    RuntimeKernelInvokeError,
-    build_runtime_kernel as _build_runtime_kernel,
-)
-from src.platform.policy.medical_safety_engine import SafetyResult
 from src.policy.safety.medical_guard import enforce_output_guard_result
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])

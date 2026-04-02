@@ -1,5 +1,6 @@
 """Session Saver node (Node 10)."""
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.redis_service import get_redis_service
 from src.utils.logging_config import get_logger
@@ -8,7 +9,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("SessionSaver")
-async def session_save(state: Dict[str, Any]) -> Dict[str, Any]:
+async def session_save(state: dict[str, Any]) -> dict[str, Any]:
     """Save session state to Redis.
 
     Only stores structured data (no raw images/text) per CT-007, CT-008.

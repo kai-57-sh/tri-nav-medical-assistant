@@ -1,14 +1,16 @@
 """Red Flag Detector node (Node 6)."""
-import yaml
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import yaml
+
 from src.chains.nodes.base import safe_node
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
-def _load_red_flag_rules() -> List[Dict[str, Any]]:
+def _load_red_flag_rules() -> list[dict[str, Any]]:
     """Load red flag rules from config file.
 
     Returns:
@@ -17,7 +19,7 @@ def _load_red_flag_rules() -> List[Dict[str, Any]]:
     config_path = Path(__file__).parent.parent.parent / "config" / "red_flag_rules.yaml"
 
     try:
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(config_path, encoding='utf-8') as f:
             rules = yaml.safe_load(f)
         return rules
     except Exception as e:
@@ -25,7 +27,7 @@ def _load_red_flag_rules() -> List[Dict[str, Any]]:
         return []
 
 
-def _matches_rule(symptom_schema: Dict[str, Any], rule: Dict[str, Any]) -> bool:
+def _matches_rule(symptom_schema: dict[str, Any], rule: dict[str, Any]) -> bool:
     """Check if symptom schema matches a red flag rule.
 
     Args:
@@ -75,7 +77,7 @@ def _matches_rule(symptom_schema: Dict[str, Any], rule: Dict[str, Any]) -> bool:
 
 
 @safe_node("RedFlagDetector")
-async def red_flag_detector(state: Dict[str, Any]) -> Dict[str, Any]:
+async def red_flag_detector(state: dict[str, Any]) -> dict[str, Any]:
     """Detect emergency symptoms using rule-based red flag detection.
 
     Evaluated BEFORE LLM triage per constitution Principle I.

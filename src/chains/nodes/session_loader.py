@@ -1,5 +1,6 @@
 """Session Loader node (Node 2)."""
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.services.redis_service import get_redis_service
 from src.utils.logging_config import get_logger
@@ -8,7 +9,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("SessionLoader")
-async def session_load(state: Dict[str, Any]) -> Dict[str, Any]:
+async def session_load(state: dict[str, Any]) -> dict[str, Any]:
     """Load session state from Redis or initialize new session.
 
     Args:

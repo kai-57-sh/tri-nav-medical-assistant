@@ -1,12 +1,14 @@
 """Unit tests for evidence and navigation nodes."""
+from unittest.mock import AsyncMock, patch
+
 import pytest
+
+from src.chains.nodes.domain_classifier import domain_classifier
 from src.chains.nodes.evidence_router import evidence_router
+from src.chains.nodes.navigator import navigator
 from src.chains.nodes.ncbi_query_builder import ncbi_query_builder
 from src.chains.nodes.ncbi_retriever_tool import ncbi_retriever_tool
-from src.chains.nodes.domain_classifier import domain_classifier
-from src.chains.nodes.navigator import navigator
 from src.chains.nodes.weather_fetcher import weather_fetcher
-from unittest.mock import patch, AsyncMock
 
 
 # Evidence Router Tests

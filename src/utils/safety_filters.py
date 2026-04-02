@@ -1,6 +1,6 @@
 """Prohibited content detection patterns for safety verification."""
 import re
-from typing import List, Tuple
+
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -83,7 +83,7 @@ def contains_delay_care(text: str) -> bool:
     return bool(DELAY_CARE_REGEX.search(text))
 
 
-def check_prohibited_content(text: str) -> List[str]:
+def check_prohibited_content(text: str) -> list[str]:
     """Check for all prohibited content types.
 
     Args:
@@ -109,7 +109,7 @@ def check_prohibited_content(text: str) -> List[str]:
     return violations
 
 
-def sanitize_response(text: str) -> Tuple[str, List[str]]:
+def sanitize_response(text: str) -> tuple[str, list[str]]:
     """Sanitize response by removing prohibited content.
 
     Args:

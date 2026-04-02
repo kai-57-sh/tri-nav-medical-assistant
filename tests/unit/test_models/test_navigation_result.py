@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from src.models.navigation_result import NavigationResult, Hospital, RoutePlan
+from src.models.navigation_result import Hospital, NavigationResult, RoutePlan
 
 
 class TestRoutePlan:

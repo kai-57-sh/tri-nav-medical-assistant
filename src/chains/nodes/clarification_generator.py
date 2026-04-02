@@ -1,8 +1,9 @@
 """Clarification Generator node (Node 9)."""
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
-from src.services.llm_service import get_llm_service
 from src.config.settings import get_settings
+from src.services.llm_service import get_llm_service
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -10,7 +11,7 @@ settings = get_settings()
 
 
 @safe_node("ClarificationGenerator")
-async def clarification_generator(state: Dict[str, Any]) -> Dict[str, Any]:
+async def clarification_generator(state: dict[str, Any]) -> dict[str, Any]:
     """Generate clarification questions if information is insufficient.
 
     - Max 2 rounds per CT-009

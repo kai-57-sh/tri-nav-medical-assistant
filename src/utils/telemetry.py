@@ -1,10 +1,11 @@
 """OpenTelemetry tracing setup for distributed tracing."""
-from typing import Optional
+
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -12,8 +13,8 @@ logger = get_logger(__name__)
 
 def setup_telemetry(
     service_name: str = "trinav",
-    otlp_endpoint: Optional[str] = None
-) -> Optional[trace.Tracer]:
+    otlp_endpoint: str | None = None
+) -> trace.Tracer | None:
     """Setup OpenTelemetry tracing with OTLP export.
 
     Args:

@@ -1,5 +1,6 @@
 """Unit tests for triage_merger node."""
 import pytest
+
 from src.chains.nodes.triage_merger import triage_merger
 
 

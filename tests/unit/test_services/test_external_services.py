@@ -1,7 +1,9 @@
 """Unit tests for external API services."""
 from datetime import datetime
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from src.services.amap_service import AmapService, get_amap_service
 from src.services.ncbi_service import NCBIService, get_ncbi_service
 from src.services.weather_service_openmeteo import OpenMeteoService, get_openmeteo_service

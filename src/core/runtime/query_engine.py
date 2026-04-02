@@ -3,8 +3,8 @@
 import inspect
 from typing import Any, Protocol
 
-from src.core.capability.planner import PlannerProtocol
 from src.core.capability.executor import ExecutorProtocol, SequentialExecutor
+from src.core.capability.planner import PlannerProtocol
 from src.core.capability.protocol import Capability
 from src.core.runtime.budget_manager import BudgetManager
 from src.core.runtime.event_bus import EventBus

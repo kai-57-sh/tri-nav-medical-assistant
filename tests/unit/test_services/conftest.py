@@ -1,7 +1,7 @@
 """Service-specific test configuration."""
-import pytest
-import redis.asyncio as redis
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.fixture

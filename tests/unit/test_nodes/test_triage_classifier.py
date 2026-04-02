@@ -1,7 +1,9 @@
 """Unit tests for triage_classifier node."""
-import pytest
-from src.chains.nodes.triage_classifier import triage_classifier
 from unittest.mock import patch
+
+import pytest
+
+from src.chains.nodes.triage_classifier import triage_classifier
 
 
 @pytest.mark.asyncio

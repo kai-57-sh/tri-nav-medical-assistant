@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from src.core.coordinator.runtime_coordinator import RuntimeCoordinator
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.runtime.execution_context import ExecutionContext
-from src.core.runtime.types import JSONValue, CapabilityResult
+from src.core.runtime.types import CapabilityResult, JSONValue
 from src.core.state.event_store import InMemoryEventStore
 
 

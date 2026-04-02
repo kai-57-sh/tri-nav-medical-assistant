@@ -1,8 +1,10 @@
 """Unit tests for Redis service."""
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from redis.exceptions import RedisError
+
 from src.services.redis_service import RedisService, get_redis_service
 
 

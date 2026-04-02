@@ -3,7 +3,8 @@
 Decides whether to retrieve NCBI evidence based on triage level.
 Skips evidence retrieval for EMERGENCY cases to speed up response time.
 """
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.utils.logging_config import get_logger
 
@@ -11,7 +12,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("EvidenceRouter")
-async def evidence_router(state: Dict[str, Any]) -> Dict[str, Any]:
+async def evidence_router(state: dict[str, Any]) -> dict[str, Any]:
     """Decide whether to retrieve NCBI evidence.
 
     Per FR-032: Skip evidence retrieval for EMERGENCY triage to minimize latency.

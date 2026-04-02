@@ -1,9 +1,11 @@
 """Unit tests for vision processing nodes."""
+import base64
+from unittest.mock import AsyncMock, patch
+
 import pytest
+
 from src.chains.nodes.image_quality_gate import image_quality_gate
 from src.chains.nodes.vision_extract import vision_extract
-from unittest.mock import patch, AsyncMock
-import base64
 
 
 @pytest.mark.asyncio

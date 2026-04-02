@@ -3,17 +3,18 @@
 Fetches weather alerts for travel tips using Open-Meteo service.
 Non-critical path with graceful degradation per FR-037.
 """
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
-from src.services.weather_service_openmeteo import get_openmeteo_service
 from src.services.redis_service import get_redis_service
+from src.services.weather_service_openmeteo import get_openmeteo_service
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 @safe_node("WeatherFetcher")
-async def weather_fetcher(state: Dict[str, Any]) -> Dict[str, Any]:
+async def weather_fetcher(state: dict[str, Any]) -> dict[str, Any]:
     """Fetch weather alerts for travel tips.
 
     Provides context-aware travel tips based on weather conditions:

@@ -11,7 +11,10 @@ import pytest
 from src.core.state.event_store import InMemoryEventStore
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
 from src.platform.state.event_repository import RuntimeEventRepository, build_event_repository
-from src.platform.state.snapshot_repository import RuntimeSnapshotRepository, build_snapshot_repository
+from src.platform.state.snapshot_repository import (
+    RuntimeSnapshotRepository,
+    build_snapshot_repository,
+)
 
 
 class _FakeRedisClient:

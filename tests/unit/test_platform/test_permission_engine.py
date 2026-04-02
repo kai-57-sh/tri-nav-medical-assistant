@@ -6,7 +6,7 @@ import pytest
 
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.platform.policy.permission_engine import PermissionEngine
-from src.platform.tooling.gateway import ToolGateway, ToolPermissionDenied
+from src.platform.tooling.gateway import ToolGateway, ToolPermissionDeniedError
 
 
 class _RecordingToolRegistry:
@@ -64,7 +64,7 @@ async def test_tool_gateway_denies_before_executing_tool() -> None:
     registry = _RecordingToolRegistry()
     gateway = ToolGateway(tool_registry=registry, permission_engine=PermissionEngine())
 
-    with pytest.raises(ToolPermissionDenied):
+    with pytest.raises(ToolPermissionDeniedError):
         await gateway.invoke("vision_extract", {"image_base64": "abc"}, context={})
 
     assert registry.calls == []

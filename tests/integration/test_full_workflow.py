@@ -1,7 +1,9 @@
 """Integration tests for end-to-end workflow."""
 import uuid
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from src.chains.triage_chain import invoke_chain
 
 

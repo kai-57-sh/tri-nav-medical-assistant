@@ -1,7 +1,7 @@
 """Shared test fixtures for TriNav."""
+import asyncio
 import base64
 import os
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

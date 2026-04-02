@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from typing import Any
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from redis.exceptions import RedisError
 
@@ -29,7 +27,7 @@ class RedisEventStore:
         "else return 0 end"
     )
 
-    def __init__(self, redis_service: "RedisService") -> None:
+    def __init__(self, redis_service: RedisService) -> None:
         self._redis = redis_service
 
     async def append(self, session_id: str, event: dict[str, Any]) -> None:

@@ -3,7 +3,8 @@
 Builds optimized search queries for PubMed literature retrieval.
 Uses symptom schema and case domain to construct relevant queries.
 """
-from typing import Dict, Any
+from typing import Any
+
 from src.chains.nodes.base import safe_node
 from src.utils.logging_config import get_logger
 
@@ -11,7 +12,7 @@ logger = get_logger(__name__)
 
 
 @safe_node("NCBIQueryBuilder")
-async def ncbi_query_builder(state: Dict[str, Any]) -> Dict[str, Any]:
+async def ncbi_query_builder(state: dict[str, Any]) -> dict[str, Any]:
     """Build NCBI PubMed search query from symptom schema.
 
     Constructs optimized query combining:
