@@ -13,13 +13,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.config.settings import get_settings
 from src.interfaces.api.assistant_v2 import (
     AssistantV2InvokePayload,
-    get_runtime_session_state,
     get_runtime_store_summary,
     list_runtime_plugins,
 )
 from src.interfaces.api.assistant_v3 import invoke_assistant_v3
+from src.platform.state.replay_service import SessionReplayNotFoundError, build_replay_service
 
 router = APIRouter(prefix="/assistant/v3/runtime", tags=["assistant-v3-runtime"])
+_REPLAY_SERVICE = build_replay_service()
 
 
 async def _resolve_maybe_awaitable(value: Any) -> Any:
@@ -73,19 +74,10 @@ async def runtime_doctor_v3() -> dict[str, Any]:
 async def replay_session_v3(session_id: str) -> dict[str, Any]:
     """Return replay data for one session from runtime stores."""
 
-    state = await _resolve_maybe_awaitable(get_runtime_session_state(session_id))
-    if not isinstance(state, dict):
-        state = {}
-    snapshot = state.get("snapshot")
-    runtime_events = state.get("runtime_events", [])
-    if snapshot is None and not runtime_events:
+    try:
+        return await _REPLAY_SERVICE.replay(session_id)
+    except SessionReplayNotFoundError:
         raise HTTPException(status_code=404, detail="session_not_found")
-    return {
-        "session_id": session_id,
-        "snapshot": snapshot,
-        "runtime_events": runtime_events,
-        "can_resume": snapshot is not None,
-    }
 
 
 @router.get("/plugins")
@@ -103,12 +95,9 @@ async def list_plugins_v3() -> dict[str, Any]:
 async def resume_session_v3(session_id: str, payload: RuntimeResumePayload) -> JSONResponse:
     """Resume an existing session by re-invoking v3 on the same session id."""
 
-    state = await _resolve_maybe_awaitable(get_runtime_session_state(session_id))
-    if not isinstance(state, dict):
-        state = {}
-    snapshot = state.get("snapshot")
-    runtime_events = state.get("runtime_events", [])
-    if snapshot is None and not runtime_events:
+    try:
+        await _REPLAY_SERVICE.resume(session_id)
+    except SessionReplayNotFoundError:
         raise HTTPException(status_code=404, detail="session_not_found")
 
     invoke_payload = AssistantV2InvokePayload(

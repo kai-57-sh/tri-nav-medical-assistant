@@ -11,6 +11,7 @@ import pytest
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
+from src.platform.state.replay_service import SessionReplayNotFoundError
 from src.server import app
 
 
@@ -172,6 +173,7 @@ def test_runtime_replay_v3_returns_snapshot_after_invoke(
     body = replay.json()
     assert body["session_id"] == "sess-replay-v3"
     assert body["can_resume"] is True
+    assert "resume_cursor" in body
     assert body["snapshot"]["status"] == "final"
     assert body["snapshot"]["response"] == "mocked replay response"
     assert isinstance(body["runtime_events"], list)
@@ -197,14 +199,20 @@ def test_runtime_resume_v3_delegates_to_v3_invoke(
 ) -> None:
     """Resume endpoint should invoke v3 with path-derived session id."""
 
-    monkeypatch.setattr(
-        "src.interfaces.api.runtime_admin_v3.get_runtime_session_state",
-        lambda session_id: {
-            "session_id": session_id,
-            "snapshot": {"status": "need_more_info"},
-            "runtime_events": [{"event_type": "runtime_finished"}],
-        },
-    )
+    class _ReplayServiceStub:
+        async def replay(self, session_id: str) -> dict[str, Any]:
+            return {
+                "session_id": session_id,
+                "snapshot": {"status": "need_more_info"},
+                "runtime_events": [{"event_type": "runtime_finished"}],
+                "resume_cursor": {"event_offset": 1},
+                "can_resume": True,
+            }
+
+        async def resume(self, session_id: str) -> dict[str, Any]:
+            return await self.replay(session_id)
+
+    monkeypatch.setattr("src.interfaces.api.runtime_admin_v3._REPLAY_SERVICE", _ReplayServiceStub())
 
     async def fake_invoke(payload):  # type: ignore[no-untyped-def]
         assert payload.session_id == "sess-resume-v3"
@@ -235,3 +243,36 @@ def test_runtime_resume_v3_delegates_to_v3_invoke(
     assert body["status"] == "need_more_info"
     assert body["session_id"] == "sess-resume-v3"
     assert body["response"] == "请继续补充症状细节"
+
+
+def test_runtime_replay_v3_returns_404_when_service_reports_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replay endpoint should preserve 404 contract on service-layer misses."""
+
+    class _ReplayServiceMissing:
+        async def replay(self, session_id: str) -> dict[str, Any]:
+            _ = session_id
+            raise SessionReplayNotFoundError("session_not_found")
+
+        async def resume(self, session_id: str) -> dict[str, Any]:
+            _ = session_id
+            raise SessionReplayNotFoundError("session_not_found")
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3._REPLAY_SERVICE",
+        _ReplayServiceMissing(),
+    )
+
+    replay = client.get("/assistant/v3/runtime/sessions/sess-missing-service/replay")
+    resume = client.post(
+        "/assistant/v3/runtime/sessions/sess-missing-service/resume",
+        json={"text": "继续"},
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert replay.status_code == 404
+    assert replay.json() == {"detail": "session_not_found"}
+    assert resume.status_code == 404
+    assert resume.json() == {"detail": "session_not_found"}
