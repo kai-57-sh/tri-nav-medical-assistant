@@ -6,7 +6,11 @@ import pytest
 
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.platform.policy.permission_engine import PermissionEngine
-from src.platform.tooling.gateway import ToolGateway, ToolPermissionDeniedError
+from src.platform.tooling.gateway import (
+    ToolGateway,
+    ToolPermissionDenied,
+    ToolPermissionDeniedError,
+)
 
 
 class _RecordingToolRegistry:
@@ -68,6 +72,15 @@ async def test_tool_gateway_denies_before_executing_tool() -> None:
         await gateway.invoke("vision_extract", {"image_base64": "abc"}, context={})
 
     assert registry.calls == []
+
+
+@pytest.mark.asyncio
+async def test_tool_gateway_legacy_exception_alias_still_catches_denials() -> None:
+    registry = _RecordingToolRegistry()
+    gateway = ToolGateway(tool_registry=registry, permission_engine=PermissionEngine())
+
+    with pytest.raises(ToolPermissionDenied):
+        await gateway.invoke("vision_extract", {"image_base64": "abc"}, context={})
 
 
 def test_permission_engine_does_not_trust_payload_for_sensitive_consent() -> None:

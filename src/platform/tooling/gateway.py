@@ -24,6 +24,10 @@ class ToolPermissionDeniedError(PermissionError):
         super().__init__(f"{reason} (decision_id={decision_id})")
 
 
+# Backward-compatible export used by existing integrations/tests.
+ToolPermissionDenied = ToolPermissionDeniedError
+
+
 class ToolGateway:
     """Run tool invocations through policy checks before execution."""
 
