@@ -1,6 +1,7 @@
 """Tests for assistant v2 server routes."""
 
 import os
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 import pytest
@@ -74,6 +75,7 @@ def test_assistant_v2_invoke_success_contract_shape(
         json={
             "request_id": "req-test-v2",
             "session_id": "sess-test-v2",
+            "trace_id": "trace-test-v2",
             "text": "头痛两天",
         },
         headers={"Content-Type": "application/json"},
@@ -85,6 +87,7 @@ def test_assistant_v2_invoke_success_contract_shape(
     assert set(data.keys()) >= {
         "status",
         "session_id",
+        "trace_id",
         "response",
         "runtime_events",
         "provenance",
@@ -92,6 +95,7 @@ def test_assistant_v2_invoke_success_contract_shape(
     }
     assert data["status"] == "final"
     assert data["session_id"] == "sess-test-v2"
+    assert data["trace_id"] == "trace-test-v2"
     assert data["response"] == "mocked response"
     assert isinstance(data["runtime_events"], list)
     assert isinstance(data["provenance"], dict)
@@ -195,6 +199,42 @@ def test_assistant_v2_runtime_exception_returns_invoke_trace(
     assert data["status"] == "error"
     assert data["trace"]["error_stage"] == "invoke"
     assert data["error_message"] == "assistant_v2_runtime_failed"
+
+
+def test_assistant_v2_generates_trace_id_when_missing(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Route should generate a UUID trace_id when payload does not include one."""
+
+    _mock_runtime_run(
+        monkeypatch,
+        result=CapabilityResult(
+            name="legacy_triage",
+            success=True,
+            payload={
+                "status": "final",
+                "session_id": "sess-test-v2",
+                "response": "mocked response",
+            },
+            provenance={"source": "legacy_graph"},
+            errors=[],
+        ),
+    )
+    response = client.post(
+        "/assistant/v2/invoke",
+        json={
+            "request_id": "req-test-v2",
+            "session_id": "sess-test-v2",
+            "text": "头痛两天",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data.get("trace_id"), str)
+    UUID(data["trace_id"])
 
 
 def test_assistant_v2_no_results_returns_503(

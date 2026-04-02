@@ -11,8 +11,11 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.state.event_store import InMemoryEventStore
+
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
 _ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
+_RUNTIME_EVENT_STORE = InMemoryEventStore()
 
 
 class AssistantV2InvokePayload(BaseModel):
@@ -22,6 +25,7 @@ class AssistantV2InvokePayload(BaseModel):
 
     request_id: str | None = None
     session_id: str | None = None
+    trace_id: str | None = None
     text: str
     image_base64: str | None = None
     gps_lat: float | None = None
@@ -33,6 +37,7 @@ def _error_response(
     *,
     session_id: str,
     request_id: str,
+    trace_id: str,
     message: str,
     runtime_events: list[dict[str, Any]] | None = None,
     trace: dict[str, Any] | None = None,
@@ -45,6 +50,7 @@ def _error_response(
         content={
             "status": "error",
             "session_id": session_id,
+            "trace_id": trace_id,
             "response": "",
             "runtime_events": runtime_events or [],
             "provenance": provenance or {"source": "assistant_v2"},
@@ -72,6 +78,7 @@ def _stream_error_payload(
     *,
     session_id: str,
     request_id: str,
+    trace_id: str,
     message: str,
     trace: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -80,6 +87,7 @@ def _stream_error_payload(
     return {
         "status": "error",
         "session_id": session_id,
+        "trace_id": trace_id,
         "response": "",
         "runtime_events": [],
         "provenance": {"source": "assistant_v2"},
@@ -93,6 +101,7 @@ def _response_json(
     *,
     session_id: str,
     request_id: str,
+    trace_id: str,
 ) -> dict[str, Any]:
     """Decode JSONResponse content for SSE final payload emission."""
 
@@ -102,6 +111,7 @@ def _response_json(
         return _stream_error_payload(
             session_id=session_id,
             request_id=request_id,
+            trace_id=trace_id,
             message="assistant_v2_stream_invalid_payload",
             trace={
                 "request_id": request_id,
@@ -111,10 +121,12 @@ def _response_json(
             },
         )
     if isinstance(decoded, dict):
+        decoded.setdefault("trace_id", trace_id)
         return decoded
     return _stream_error_payload(
         session_id=session_id,
         request_id=request_id,
+        trace_id=trace_id,
         message="assistant_v2_stream_invalid_payload",
         trace={
             "request_id": request_id,
@@ -131,6 +143,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
 
     request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
     session_id = (payload.session_id or "").strip() or str(uuid4())
+    trace_id = (payload.trace_id or "").strip() or str(uuid4())
 
     try:
         from src.capabilities.legacy_triage.capability import LegacyTriageCapability
@@ -141,6 +154,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
         return _error_response(
             session_id=session_id,
             request_id=request_id,
+            trace_id=trace_id,
             message="assistant_v2_runtime_unavailable",
             trace={
                 "request_id": request_id,
@@ -162,13 +176,18 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             metadata=payload.metadata,
         )
         event_bus = EventBus()
-        engine = QueryEngine([LegacyTriageCapability()], event_bus=event_bus)
+        engine = QueryEngine(
+            [LegacyTriageCapability()],
+            event_bus=event_bus,
+            event_store=_RUNTIME_EVENT_STORE,
+        )
         results = await engine.run(context)
     except Exception as exc:
         runtime_events = [] if event_bus is None else event_bus.dump()
         return _error_response(
             session_id=session_id,
             request_id=request_id,
+            trace_id=trace_id,
             message="assistant_v2_runtime_failed",
             runtime_events=runtime_events,
             trace={
@@ -184,6 +203,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
         return _error_response(
             session_id=session_id,
             request_id=request_id,
+            trace_id=trace_id,
             message="assistant_v2_runtime_failed_no_results",
             runtime_events=runtime_events,
             trace={"request_id": request_id, "error_stage": "invoke", "error_type": "NoResults"},
@@ -202,6 +222,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     body = {
         "status": response_status,
         "session_id": resolved_session_id if isinstance(resolved_session_id, str) else session_id,
+        "trace_id": trace_id,
         "response": response_text if isinstance(response_text, str) else "",
         "runtime_events": runtime_events,
         "provenance": primary.provenance,
@@ -227,7 +248,10 @@ async def stream_assistant_v2(payload: AssistantV2InvokePayload) -> StreamingRes
 
     request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
     session_id = (payload.session_id or "").strip() or str(uuid4())
-    resolved_payload = payload.model_copy(update={"request_id": request_id, "session_id": session_id})
+    trace_id = (payload.trace_id or "").strip() or str(uuid4())
+    resolved_payload = payload.model_copy(
+        update={"request_id": request_id, "session_id": session_id, "trace_id": trace_id}
+    )
 
     async def event_stream() -> AsyncIterator[str]:
         yield _sse_event(
@@ -245,11 +269,13 @@ async def stream_assistant_v2(payload: AssistantV2InvokePayload) -> StreamingRes
                 final_response,
                 session_id=session_id,
                 request_id=request_id,
+                trace_id=trace_id,
             )
         except Exception as exc:
             final_payload = _stream_error_payload(
                 session_id=session_id,
                 request_id=request_id,
+                trace_id=trace_id,
                 message="assistant_v2_stream_failed",
                 trace={
                     "request_id": request_id,
@@ -263,6 +289,7 @@ async def stream_assistant_v2(payload: AssistantV2InvokePayload) -> StreamingRes
                 final_payload = _stream_error_payload(
                     session_id=session_id,
                     request_id=request_id,
+                    trace_id=trace_id,
                     message="assistant_v2_stream_missing_final",
                     trace={
                         "request_id": request_id,
