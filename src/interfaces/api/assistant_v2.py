@@ -21,6 +21,7 @@ from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult
 from src.core.state.event_store import InMemoryEventStore
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
+from src.policy.safety.medical_guard import enforce_output_guard
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
 _ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
@@ -371,12 +372,15 @@ async def _invoke_v3_task_coordinator(
     if not primary.success:
         response_status = "error"
     response_text = output_payload.get("response")
+    normalized_response = response_text if isinstance(response_text, str) else ""
+    if response_status in {"final", "need_more_info"} and normalized_response:
+        normalized_response = enforce_output_guard(normalized_response)
 
     body: dict[str, Any] = {
         "status": response_status,
         "session_id": session_id,
         "trace_id": trace_id,
-        "response": response_text if isinstance(response_text, str) else "",
+        "response": normalized_response,
         "runtime_events": runtime_events,
         "provenance": primary.provenance,
         "trace": {

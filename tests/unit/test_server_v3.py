@@ -181,3 +181,57 @@ def test_assistant_v3_invoke_uses_task_coordinator_when_enabled(
     assert data["disclaimer"] == "本建议仅供参考，不替代专业医疗诊断。"
     assert data["trace"]["path"] == "v3_task_coordinator"
     assert "已记录症状" in data["response"]
+
+
+def test_assistant_v3_task_coordinator_applies_medical_guard(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V3 task coordinator output should be post-processed by medical guard."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.assistant_v2.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_builtin_plugins_enabled=False,
+            v3_plugin_trace_enabled=True,
+            v3_plugin_medical_footer_enabled=True,
+        ),
+    )
+
+    async def fake_response_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="response",
+            success=True,
+            payload={
+                "status": "final",
+                "response": "你已经确诊肺炎，先别去医院。",
+            },
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "src.capabilities.response.capability.ResponseCapability.run",
+        fake_response_run,
+    )
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-guard-1",
+            "session_id": "sess-v3-guard-1",
+            "trace_id": "trace-v3-guard-1",
+            "text": "胸痛并伴呼吸困难",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "final"
+    assert "确诊" not in data["response"]
+    assert "别去医院" not in data["response"]
+    assert "疑似" in data["response"]
+    assert "建议尽快就医" in data["response"]
