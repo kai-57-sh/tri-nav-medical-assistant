@@ -40,3 +40,13 @@ class InMemoryEventStore:
         """Return a copy of session events in append order."""
 
         return [dict(event) for event in self._events_by_session.get(session_id, [])]
+
+    def session_count(self) -> int:
+        """Return number of sessions currently tracked in memory."""
+
+        return len(self._events_by_session)
+
+    def event_count(self) -> int:
+        """Return total number of buffered runtime events."""
+
+        return sum(len(events) for events in self._events_by_session.values())

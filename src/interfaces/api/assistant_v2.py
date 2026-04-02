@@ -12,7 +12,9 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.config.settings import get_settings
 from src.core.coordinator.runtime_coordinator import RuntimeCoordinator
+from src.core.plugins.builtin import create_builtin_plugins
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.state.event_store import InMemoryEventStore
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
@@ -21,7 +23,6 @@ router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
 _ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
 _RUNTIME_EVENT_STORE = InMemoryEventStore()
 _RUNTIME_SNAPSHOT_STORE = InMemorySnapshotStore()
-_RUNTIME_PLUGIN_REGISTRY = RuntimePluginRegistry()
 
 
 class AssistantV2InvokePayload(BaseModel):
@@ -95,7 +96,39 @@ def get_runtime_session_state(session_id: str) -> dict[str, Any]:
 def list_runtime_plugins() -> list[str]:
     """Expose registered runtime plugin names for diagnostics."""
 
-    return _RUNTIME_PLUGIN_REGISTRY.list_names()
+    return _build_runtime_plugin_registry().list_names()
+
+
+def get_runtime_store_summary() -> dict[str, int]:
+    """Expose runtime event/snapshot buffer summary for diagnostics."""
+
+    return {
+        "sessions_with_events": _RUNTIME_EVENT_STORE.session_count(),
+        "total_runtime_events": _RUNTIME_EVENT_STORE.event_count(),
+        "sessions_with_snapshots": _RUNTIME_SNAPSHOT_STORE.count(),
+    }
+
+
+def _build_runtime_plugin_registry() -> RuntimePluginRegistry:
+    """Build a runtime plugin registry from current feature flags."""
+
+    registry = RuntimePluginRegistry()
+    try:
+        settings = get_settings()
+    except Exception:
+        return registry
+
+    if not bool(getattr(settings, "v3_builtin_plugins_enabled", False)):
+        return registry
+
+    trace_enabled = bool(getattr(settings, "v3_plugin_trace_enabled", True))
+    medical_footer_enabled = bool(getattr(settings, "v3_plugin_medical_footer_enabled", True))
+    for plugin in create_builtin_plugins(
+        trace_enabled=trace_enabled,
+        medical_footer_enabled=medical_footer_enabled,
+    ):
+        registry.register(plugin)
+    return registry
 
 
 def _error_response(
@@ -257,7 +290,7 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             event_bus=event_bus,
             event_store=_RUNTIME_EVENT_STORE,
         )
-        coordinator = RuntimeCoordinator(engine=engine, plugins=_RUNTIME_PLUGIN_REGISTRY)
+        coordinator = RuntimeCoordinator(engine=engine, plugins=_build_runtime_plugin_registry())
         results = await coordinator.run(context)
     except Exception as exc:
         runtime_events = [] if event_bus is None else event_bus.dump()

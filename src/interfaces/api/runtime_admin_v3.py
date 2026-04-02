@@ -13,6 +13,7 @@ from src.config.settings import get_settings
 from src.interfaces.api.assistant_v2 import (
     AssistantV2InvokePayload,
     get_runtime_session_state,
+    get_runtime_store_summary,
     list_runtime_plugins,
 )
 from src.interfaces.api.assistant_v3 import invoke_assistant_v3
@@ -57,6 +58,7 @@ async def runtime_doctor_v3() -> dict[str, Any]:
         "dependencies": {
             "redis": {"healthy": redis_healthy},
         },
+        "observability": get_runtime_store_summary(),
     }
 
 

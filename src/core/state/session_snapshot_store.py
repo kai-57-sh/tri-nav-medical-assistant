@@ -24,3 +24,8 @@ class InMemorySnapshotStore:
         if snapshot is None:
             return None
         return deepcopy(snapshot)
+
+    def count(self) -> int:
+        """Return number of in-memory snapshots."""
+
+        return len(self._snapshots)

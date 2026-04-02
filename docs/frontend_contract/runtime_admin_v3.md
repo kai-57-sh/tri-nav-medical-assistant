@@ -21,6 +21,11 @@
     "redis": {
       "healthy": true
     }
+  },
+  "observability": {
+    "sessions_with_events": 12,
+    "total_runtime_events": 126,
+    "sessions_with_snapshots": 8
   }
 }
 ```

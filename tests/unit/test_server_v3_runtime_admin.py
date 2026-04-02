@@ -65,6 +65,14 @@ def test_runtime_doctor_v3_returns_flags_and_dependency_health(
         "src.services.redis_service.get_redis_service",
         fake_get_redis_service,
     )
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_runtime_store_summary",
+        lambda: {
+            "sessions_with_events": 3,
+            "total_runtime_events": 15,
+            "sessions_with_snapshots": 2,
+        },
+    )
 
     response = client.get("/assistant/v3/runtime/doctor")
 
@@ -74,6 +82,11 @@ def test_runtime_doctor_v3_returns_flags_and_dependency_health(
     assert body["runtime"]["v3_runtime_enabled"] is True
     assert body["runtime"]["v3_shadow_compare_enabled"] is False
     assert body["dependencies"]["redis"]["healthy"] is True
+    assert body["observability"] == {
+        "sessions_with_events": 3,
+        "total_runtime_events": 15,
+        "sessions_with_snapshots": 2,
+    }
 
 
 def test_runtime_replay_v3_returns_404_when_session_missing(client: TestClient) -> None:

@@ -54,6 +54,18 @@ class Settings(BaseSettings):
         default=False,
         description="Enable TriNav v3 shadow comparison"
     )
+    v3_builtin_plugins_enabled: bool = Field(
+        default=False,
+        description="Enable built-in runtime plugins in v3 parity path",
+    )
+    v3_plugin_trace_enabled: bool = Field(
+        default=True,
+        description="Enable built-in trace context plugin",
+    )
+    v3_plugin_medical_footer_enabled: bool = Field(
+        default=True,
+        description="Enable built-in medical disclaimer footer plugin",
+    )
 
     # Server Configuration
     server_host: str = Field(default="0.0.0.0", description="Server host")
