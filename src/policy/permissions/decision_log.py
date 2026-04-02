@@ -20,7 +20,12 @@ class DecisionLog:
         self._rows: list[DecisionRow] = []
 
     def record(self, target: str, action: PermissionAction | str, reason: str) -> None:
-        action_value = action.value if isinstance(action, PermissionAction) else str(action)
+        try:
+            normalized_action = action if isinstance(action, PermissionAction) else PermissionAction(str(action))
+        except ValueError as exc:
+            raise ValueError(f"Invalid permission action: {action}") from exc
+
+        action_value = normalized_action.value
         self._rows.append(
             {
                 "target": target,

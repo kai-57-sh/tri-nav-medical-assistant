@@ -25,6 +25,7 @@ def test_enforce_output_guard_appends_safety_guidance_when_missing() -> None:
     guarded = enforce_output_guard(original)
 
     assert "尽快就医" in guarded
+    assert "..。" not in guarded
 
 
 @pytest.mark.parametrize(
@@ -42,4 +43,14 @@ def test_enforce_output_guard_removes_delay_to_care_phrases(phrase: str) -> None
     guarded = enforce_output_guard(original)
 
     assert phrase not in guarded
+    assert "尽快就医" in guarded
+
+
+def test_enforce_output_guard_rewrites_negated_procare_phrase_bypass() -> None:
+    original = "目前不建议尽快就医，先在家休息。"
+
+    guarded = enforce_output_guard(original)
+
+    assert "不建议尽快就医" not in guarded
+    assert "建议尽快就医" in guarded
     assert "尽快就医" in guarded
