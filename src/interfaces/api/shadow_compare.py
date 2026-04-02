@@ -46,17 +46,41 @@ def _to_payload_dict(raw_result: Any) -> dict[str, Any]:
     return decoded if isinstance(decoded, dict) else {}
 
 
-def _to_summary(raw_result: Any) -> dict[str, str | None]:
+def _to_summary(raw_result: Any) -> dict[str, Any]:
     """Normalize one runner result to compare fields."""
 
     if isinstance(raw_result, Exception):
-        return {"status": "error", "triage_level": None}
+        return {
+            "status": "error",
+            "triage_level": None,
+            "failed": True,
+            "invalid_payload": False,
+            "error_type": type(raw_result).__name__,
+            "error_message": str(raw_result),
+        }
+
     payload = _to_payload_dict(raw_result)
     status = payload.get("status")
     triage_level = payload.get("triage_level")
+    invalid_payload = (
+        not payload
+        or not isinstance(status, str)
+        or (triage_level is not None and not isinstance(triage_level, str))
+    )
+
+    error_type = None
+    error_message = None
+    if invalid_payload:
+        error_type = "InvalidPayload"
+        error_message = "runner returned payload missing valid status/triage_level"
+
     return {
         "status": status if isinstance(status, str) else None,
         "triage_level": triage_level if isinstance(triage_level, str) else None,
+        "failed": False,
+        "invalid_payload": invalid_payload,
+        "error_type": error_type,
+        "error_message": error_message,
     }
 
 
@@ -70,9 +94,17 @@ async def compare_v1_v2(payload: dict[str, Any], v1_runner: Runner, v2_runner: R
     )
     v1_summary = _to_summary(v1_raw)
     v2_summary = _to_summary(v2_raw)
+    force_mismatch = (
+        bool(v1_summary["failed"])
+        or bool(v2_summary["failed"])
+        or bool(v1_summary["invalid_payload"])
+        or bool(v2_summary["invalid_payload"])
+    )
     return {
-        "same_status": v1_summary["status"] == v2_summary["status"],
-        "same_triage": v1_summary["triage_level"] == v2_summary["triage_level"],
+        "same_status": False if force_mismatch else v1_summary["status"] == v2_summary["status"],
+        "same_triage": False
+        if force_mismatch
+        else v1_summary["triage_level"] == v2_summary["triage_level"],
         "v1": v1_summary,
         "v2": v2_summary,
     }
@@ -125,6 +157,7 @@ async def _run_v2(payload: dict[str, Any]) -> dict[str, Any]:
 async def shadow_compare(payload: ShadowComparePayload) -> dict[str, Any]:
     """Run lightweight v1/v2 shadow compare when explicitly enabled."""
 
-    if not get_settings().v2_shadow_compare_enabled:
+    settings = get_settings()
+    if not (settings.v2_runtime_enabled and settings.v2_shadow_compare_enabled):
         raise HTTPException(status_code=404, detail="shadow_compare_disabled")
     return await compare_v1_v2(payload.model_dump(), v1_runner=_run_v1, v2_runner=_run_v2)
