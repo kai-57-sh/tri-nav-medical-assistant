@@ -25,7 +25,7 @@ class BudgetManager:
         return None
 
     def check_elapsed(self) -> StopReason | None:
-        elapsed_ms = int((self._now_fn() - self._started_at) * 1000)
+        elapsed_ms = (self._now_fn() - self._started_at) * 1000
         if elapsed_ms > self._max_elapsed_ms:
             return StopReason.TIME_BUDGET_EXCEEDED
         return None

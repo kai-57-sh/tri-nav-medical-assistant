@@ -14,3 +14,15 @@ def test_budget_manager_stops_after_time_budget_exceeded() -> None:
     budget = BudgetManager(max_tool_calls=10, max_elapsed_ms=500, now_fn=lambda: next(timeline))
     assert budget.check_elapsed() is None
     assert budget.check_elapsed() is StopReason.TIME_BUDGET_EXCEEDED
+
+
+def test_budget_manager_does_not_stop_at_equal_time_budget_threshold() -> None:
+    timeline = iter([0.0, 0.5])  # seconds
+    budget = BudgetManager(max_tool_calls=10, max_elapsed_ms=500, now_fn=lambda: next(timeline))
+    assert budget.check_elapsed() is None
+
+
+def test_budget_manager_stops_when_elapsed_is_sub_millisecond_over_threshold() -> None:
+    timeline = iter([0.0, 0.5009])  # seconds
+    budget = BudgetManager(max_tool_calls=10, max_elapsed_ms=500, now_fn=lambda: next(timeline))
+    assert budget.check_elapsed() is StopReason.TIME_BUDGET_EXCEEDED
