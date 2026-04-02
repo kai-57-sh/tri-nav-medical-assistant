@@ -49,6 +49,11 @@ class Settings(BaseSettings):
         default=False,
         description="Enable TriNav v2 shadow comparison"
     )
+    v3_runtime_enabled: bool = Field(default=False, description="Enable TriNav v3 runtime")
+    v3_shadow_compare_enabled: bool = Field(
+        default=False,
+        description="Enable TriNav v3 shadow comparison"
+    )
 
     # Server Configuration
     server_host: str = Field(default="0.0.0.0", description="Server host")
