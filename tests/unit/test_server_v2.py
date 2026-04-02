@@ -19,21 +19,29 @@ def client() -> TestClient:
 def _mock_runtime_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    result: CapabilityResult,
+    result: CapabilityResult | None = None,
+    results: list[CapabilityResult] | None = None,
+    run_error: Exception | None = None,
 ) -> None:
     async def fake_run(self, context):  # type: ignore[no-untyped-def]
         _ = self
         _ = context
+        if run_error is not None:
+            raise run_error
+        if results is not None:
+            return results
+        assert result is not None
         return [result]
 
     def fake_dump(self):  # type: ignore[no-untyped-def]
         _ = self
+        success = None if result is None else result.success
         return [
             {
                 "event_type": "runtime_finished",
                 "request_id": "req-test-v2",
                 "session_id": "sess-test-v2",
-                "data": {"capabilities_executed": 1, "success": result.success},
+                "data": {"capabilities_executed": 1, "success": success},
             }
         ]
 
@@ -125,3 +133,91 @@ def test_assistant_v2_unknown_status_normalized_to_error(
     data = response.json()
     assert data["status"] == "error"
     assert "error_message" in data
+
+
+def test_assistant_v2_failure_precedence_overrides_payload_status(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When capability reports failure, response status must be error."""
+
+    _mock_runtime_run(
+        monkeypatch,
+        result=CapabilityResult(
+            name="legacy_triage",
+            success=False,
+            payload={
+                "status": "final",
+                "session_id": "sess-test-v2",
+                "response": "mocked response",
+            },
+            provenance={"source": "legacy_graph"},
+            errors=["downstream failed"],
+        ),
+    )
+    response = client.post(
+        "/assistant/v2/invoke",
+        json={
+            "request_id": "req-test-v2",
+            "session_id": "sess-test-v2",
+            "text": "头痛两天",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["status"] == "error"
+
+
+def test_assistant_v2_runtime_exception_returns_invoke_trace(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unhandled runtime errors should return structured invoke-stage trace."""
+
+    _mock_runtime_run(
+        monkeypatch,
+        run_error=RuntimeError("runtime boom"),
+    )
+    response = client.post(
+        "/assistant/v2/invoke",
+        json={
+            "request_id": "req-test-v2",
+            "session_id": "sess-test-v2",
+            "text": "头痛两天",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["trace"]["error_stage"] == "invoke"
+    assert data["error_message"] == "assistant_v2_runtime_failed"
+
+
+def test_assistant_v2_no_results_returns_503(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty runtime results should return structured 503 response."""
+
+    _mock_runtime_run(
+        monkeypatch,
+        results=[],
+    )
+    response = client.post(
+        "/assistant/v2/invoke",
+        json={
+            "request_id": "req-test-v2",
+            "session_id": "sess-test-v2",
+            "text": "头痛两天",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["error_message"] == "assistant_v2_runtime_failed_no_results"

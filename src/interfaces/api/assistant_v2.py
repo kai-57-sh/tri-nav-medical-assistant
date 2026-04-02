@@ -128,6 +128,8 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     output_payload = primary.payload if isinstance(primary.payload, dict) else {}
     runtime_status = output_payload.get("status")
     response_status = _normalize_status(runtime_status)
+    if not primary.success:
+        response_status = "error"
     response_text = output_payload.get("response")
     resolved_session_id = output_payload.get("session_id")
     error_message = output_payload.get("error_message")
