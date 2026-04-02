@@ -1,6 +1,7 @@
 """Layered permission decision engine for TriNav v2."""
 
 from collections.abc import Sequence
+from typing import cast
 
 from src.policy.permissions.decision_log import DecisionLog
 from src.policy.permissions.rules import PermissionAction, PermissionRule
@@ -39,7 +40,7 @@ class PermissionEngine:
                         action=matched_rule.action,
                         reason=f"{layer_name} layer matched rule '{matched_rule.target}'",
                     )
-                return matched_rule.action
+                return cast(PermissionAction, matched_rule.action)
 
         if self._decision_log is not None:
             self._decision_log.record(

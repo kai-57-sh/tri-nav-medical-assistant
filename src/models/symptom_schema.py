@@ -51,8 +51,8 @@ class SymptomSchema(BaseModel):
     )
     symptoms: list[str] = Field(
         ...,
-        min_items=1,
-        max_items=10,
+        min_length=1,
+        max_length=10,
         description="Reported symptoms (e.g., ['红疹', '痒'])"
     )
 

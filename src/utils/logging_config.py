@@ -14,7 +14,12 @@ correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="")
 class JSONFormatter(jsonlogger.JsonFormatter):
     """Custom JSON formatter with correlation ID."""
 
-    def add_fields(self, log_record: dict[str, Any], record: logging.LogRecord, message_dict: dict[str, Any]):
+    def add_fields(
+        self,
+        log_record: dict[str, Any],
+        record: logging.LogRecord,
+        message_dict: dict[str, Any],
+    ) -> None:
         super().add_fields(log_record, record, message_dict)
         # Add correlation ID if available
         correlation_id = correlation_id_var.get()

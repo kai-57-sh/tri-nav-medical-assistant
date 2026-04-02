@@ -1,7 +1,10 @@
 """Amap tool adapter for TriNav v2 runtime."""
 
 from numbers import Real
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.services.amap_service import AmapService
 
 
 def _validate_coordinate(payload: dict[str, Any], key: str, minimum: float, maximum: float) -> float:
@@ -25,7 +28,7 @@ def _validate_coordinate(payload: dict[str, Any], key: str, minimum: float, maxi
     return value_f
 
 
-def _validate_radius_km(payload: dict[str, Any]) -> float:
+def _validate_radius_km(payload: dict[str, Any]) -> int:
     radius_km = payload.get("radius_km", 10)
     if isinstance(radius_km, bool) or not isinstance(radius_km, Real):
         raise ValueError("payload['radius_km'] must be a positive number")
@@ -36,10 +39,10 @@ def _validate_radius_km(payload: dict[str, Any]) -> float:
             f"payload['radius_km'] must be > 0, got {radius_km_f}"
         )
 
-    return radius_km_f
+    return int(radius_km_f)
 
 
-def _get_amap_service() -> Any:
+def _get_amap_service() -> "AmapService":
     from src.services.amap_service import get_amap_service
 
     return get_amap_service()

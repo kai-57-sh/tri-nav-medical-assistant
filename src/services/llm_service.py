@@ -1,6 +1,6 @@
 """LLM service for Qwen model integration via OpenAI-compatible API."""
 import json
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -19,7 +19,7 @@ settings = get_settings()
 class LLMService:
     """LLM service for Qwen model integration with retry and graceful degradation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize LLM service with multiple model instances."""
         self._healthy = True
         self._extractor: BaseChatModel | None = None
@@ -29,9 +29,9 @@ class LLMService:
 
         self._setup_models()
 
-    def _setup_models(self):
+    def _setup_models(self) -> None:
         """Setup different model instances for different use cases."""
-        common_config = {
+        common_config: dict[str, Any] = {
             "base_url": settings.qwen_base_url,
             "api_key": settings.qwen_api_key,
             "timeout": settings.llm_timeout,
@@ -73,6 +73,12 @@ class LLMService:
             set_external_service_health("qwen", False)
             logger.error(f"Failed to initialize LLM models: {e}")
 
+    def _require_model(self, model: BaseChatModel | None, model_name: str) -> BaseChatModel:
+        """Guarantee model is initialized before invocation."""
+        if model is None:
+            raise RuntimeError(f"LLM model not initialized: {model_name}")
+        return model
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=5),
@@ -99,7 +105,15 @@ class LLMService:
         """
         try:
             response = await model.ainvoke(messages)
-            return response.content
+            content = response.content
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return "".join(
+                    item if isinstance(item, str) else json.dumps(item, ensure_ascii=False)
+                    for item in content
+                )
+            return str(content)
 
         except Exception as e:
             set_external_service_health("qwen", False)
@@ -158,7 +172,10 @@ class LLMService:
                 HumanMessage(content=user_prompt)
             ]
 
-            response = await self._invoke_with_retry(self._extractor, messages)
+            response = await self._invoke_with_retry(
+                self._require_model(self._extractor, "extractor"),
+                messages,
+            )
 
             # Try to parse JSON response
             try:
@@ -166,7 +183,7 @@ class LLMService:
                 json_start = response.find("{")
                 json_end = response.rfind("}") + 1
                 json_str = response[json_start:json_end]
-                symptom_schema = json.loads(json_str)
+                symptom_schema = cast(dict[str, Any], json.loads(json_str))
                 return symptom_schema
 
             except json.JSONDecodeError as e:
@@ -244,14 +261,17 @@ class LLMService:
                 HumanMessage(content=user_prompt)
             ]
 
-            response = await self._invoke_with_retry(self._triage, messages)
+            response = await self._invoke_with_retry(
+                self._require_model(self._triage, "triage"),
+                messages,
+            )
 
             # Parse JSON response
             try:
                 json_start = response.find("{")
                 json_end = response.rfind("}") + 1
                 json_str = response[json_start:json_end]
-                triage_decision = json.loads(json_str)
+                triage_decision = cast(dict[str, Any], json.loads(json_str))
                 return triage_decision
 
             except json.JSONDecodeError as e:
@@ -318,14 +338,17 @@ class LLMService:
                 HumanMessage(content=user_prompt)
             ]
 
-            response = await self._invoke_with_retry(self._verifier, messages)
+            response = await self._invoke_with_retry(
+                self._require_model(self._verifier, "verifier"),
+                messages,
+            )
 
             # Parse JSON response
             try:
                 json_start = response.find("{")
                 json_end = response.rfind("}") + 1
                 json_str = response[json_start:json_end]
-                verification = json.loads(json_str)
+                verification = cast(dict[str, Any], json.loads(json_str))
                 return verification
 
             except json.JSONDecodeError as e:
@@ -382,7 +405,7 @@ class LLMService:
 }"""
 
         # Prepare multimodal message
-        user_content = []
+        user_content: list[dict[str, Any]] = []
         if text:
             user_content.append({"type": "text", "text": f"用户描述：{text}"})
 
@@ -400,17 +423,20 @@ class LLMService:
         try:
             messages = [
                 SystemMessage(content=system_prompt),
-                HumanMessage(content=user_content)
+                HumanMessage(content=cast(list[str | dict[Any, Any]], user_content))
             ]
 
-            response = await self._invoke_with_retry(self._vision, messages)
+            response = await self._invoke_with_retry(
+                self._require_model(self._vision, "vision"),
+                messages,
+            )
 
             # Parse JSON response
             try:
                 json_start = response.find("{")
                 json_end = response.rfind("}") + 1
                 json_str = response[json_start:json_end]
-                visual_findings = json.loads(json_str)
+                visual_findings = cast(dict[str, Any], json.loads(json_str))
                 return visual_findings
 
             except json.JSONDecodeError as e:
@@ -467,7 +493,10 @@ class LLMService:
                 HumanMessage(content=user_prompt)
             ]
 
-            response = await self._invoke_with_retry(self._extractor, messages)
+            response = await self._invoke_with_retry(
+                self._require_model(self._extractor, "extractor"),
+                messages,
+            )
 
             # Extract domain (should be single word)
             domain = response.strip().lower()
@@ -529,15 +558,21 @@ class LLMService:
                 HumanMessage(content=user_prompt)
             ]
 
-            response = await self._invoke_with_retry(self._extractor, messages)
+            response = await self._invoke_with_retry(
+                self._require_model(self._extractor, "extractor"),
+                messages,
+            )
 
             # Parse JSON response
             try:
                 json_start = response.find("{")
                 json_end = response.rfind("}") + 1
                 json_str = response[json_start:json_end]
-                result = json.loads(json_str)
-                questions = result.get("questions", [])
+                result = cast(dict[str, Any], json.loads(json_str))
+                raw_questions = result.get("questions", [])
+                if not isinstance(raw_questions, list):
+                    return ["请提供更多症状细节"]
+                questions = [str(item) for item in raw_questions if isinstance(item, str)]
                 return questions[:settings.max_clarification_questions]
 
             except json.JSONDecodeError as e:

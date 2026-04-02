@@ -36,7 +36,7 @@ class RedFlagRule(BaseModel):
     # === Rule Logic ===
     conditions: list[RuleCondition] = Field(
         ...,
-        min_items=1,
+        min_length=1,
         description="Rule conditions (AND logic between conditions)"
     )
 
@@ -53,7 +53,7 @@ class RedFlagRule(BaseModel):
     )
     department: list[str] = Field(
         ...,
-        min_items=1,
+        min_length=1,
         description="Recommended departments (typically ['急诊'])"
     )
 

@@ -18,7 +18,7 @@ class Settings(BaseSettings):
         default="https://dashscope.aliyuncs.com/compatible-mode/v1",
         description="Qwen API base URL"
     )
-    qwen_api_key: str = Field(..., description="Qwen API key")
+    qwen_api_key: str = Field(default="", description="Qwen API key")
 
     # Redis
     redis_url: str = Field(default="redis://localhost:6379", description="Redis connection URL")

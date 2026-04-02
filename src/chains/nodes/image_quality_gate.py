@@ -4,6 +4,7 @@ Checks if uploaded image meets quality requirements before processing.
 If quality is insufficient, marks image as ignored and proceeds with text-only workflow.
 """
 import base64
+import binascii
 import io
 from typing import Any
 
@@ -100,7 +101,7 @@ async def image_quality_gate(state: dict[str, Any]) -> dict[str, Any]:
 
         return {"image_as_valid": True}
 
-    except base64.binascii.Error as e:
+    except binascii.Error as e:
         logger.warning(f"Invalid base64 encoding: {e}", extra={"session_id": session_id})
         return {"image_as_valid": False, "visual_findings": None}
 

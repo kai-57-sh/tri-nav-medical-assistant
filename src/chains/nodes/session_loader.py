@@ -19,6 +19,8 @@ async def session_load(state: dict[str, Any]) -> dict[str, Any]:
         Updated state with session data loaded from Redis
     """
     session_id = state.get("session_id")
+    if not isinstance(session_id, str):
+        session_id = ""
 
     # Try to load existing session
     redis_service = await get_redis_service()

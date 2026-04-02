@@ -1,6 +1,9 @@
 """NCBI tool adapter for TriNav v2 runtime."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.services.ncbi_service import NCBIService
 
 _NCBI_MIN_RESULTS = 1
 _NCBI_MAX_RESULTS = 50
@@ -28,10 +31,10 @@ def _validate_max_results(payload: dict[str, Any]) -> int:
             "payload['max_results'] out of range; expected "
             f"[{_NCBI_MIN_RESULTS}, {_NCBI_MAX_RESULTS}], got {max_results}"
         )
-    return max_results
+    return int(max_results)
 
 
-def _get_ncbi_service() -> Any:
+def _get_ncbi_service() -> "NCBIService":
     from src.services.ncbi_service import get_ncbi_service
 
     return get_ncbi_service()

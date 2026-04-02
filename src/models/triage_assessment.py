@@ -26,16 +26,16 @@ class TriageAssessment(BaseModel):
     # === Recommendations ===
     recommended_departments: list[str] = Field(
         ...,
-        min_items=1,
-        max_items=5,
+        min_length=1,
+        max_length=5,
         description="Suggested medical departments (per FR-019)"
     )
 
     # === Possible Causes (Qualified) ===
     possible_causes: list[str] = Field(
         ...,
-        min_items=0,
-        max_items=3,
+        min_length=0,
+        max_length=3,
         description="Suspected causes with '疑似' or '可能' qualifiers (per FR-020)"
     )
 
@@ -51,8 +51,8 @@ class TriageAssessment(BaseModel):
     # === Self-Care Guidance ===
     self_care_tips: list[str] = Field(
         ...,
-        min_items=0,
-        max_items=10,
+        min_length=0,
+        max_length=10,
         description="Non-prescriptive care guidance (per FR-021)"
     )
 
@@ -69,8 +69,8 @@ class TriageAssessment(BaseModel):
     # === Red Flags (Warning Signs) ===
     red_flags: list[str] = Field(
         ...,
-        min_items=0,
-        max_items=10,
+        min_length=0,
+        max_length=10,
         description="Warning signs requiring immediate emergency care (per FR-022)"
     )
 
