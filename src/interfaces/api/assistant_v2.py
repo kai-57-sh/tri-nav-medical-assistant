@@ -68,16 +68,61 @@ def _sse_event(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _response_json(response: JSONResponse) -> dict[str, Any]:
+def _stream_error_payload(
+    *,
+    session_id: str,
+    request_id: str,
+    message: str,
+    trace: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build invoke-like error payload used by stream fallback paths."""
+
+    return {
+        "status": "error",
+        "session_id": session_id,
+        "response": "",
+        "runtime_events": [],
+        "provenance": {"source": "assistant_v2"},
+        "trace": trace or {"request_id": request_id, "error_message": message},
+        "error_message": message,
+    }
+
+
+def _response_json(
+    response: JSONResponse,
+    *,
+    session_id: str,
+    request_id: str,
+) -> dict[str, Any]:
     """Decode JSONResponse content for SSE final payload emission."""
 
     try:
         decoded = json.loads(response.body.decode("utf-8"))
-    except Exception:
-        return {"status": "error", "error_message": "assistant_v2_stream_invalid_payload"}
+    except Exception as exc:
+        return _stream_error_payload(
+            session_id=session_id,
+            request_id=request_id,
+            message="assistant_v2_stream_invalid_payload",
+            trace={
+                "request_id": request_id,
+                "error_stage": "stream_decode",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        )
     if isinstance(decoded, dict):
         return decoded
-    return {"status": "error", "error_message": "assistant_v2_stream_invalid_payload"}
+    return _stream_error_payload(
+        session_id=session_id,
+        request_id=request_id,
+        message="assistant_v2_stream_invalid_payload",
+        trace={
+            "request_id": request_id,
+            "error_stage": "stream_decode",
+            "error_type": "InvalidPayloadType",
+            "error_message": "decoded payload is not an object",
+        },
+    )
 
 
 @router.post("/invoke")
@@ -193,8 +238,40 @@ async def stream_assistant_v2(payload: AssistantV2InvokePayload) -> StreamingRes
                 "session_id": session_id,
             },
         )
-        final_response = await invoke_assistant_v2(resolved_payload)
-        yield _sse_event("final", _response_json(final_response))
-        yield "data: [DONE]\n\n"
+        final_payload: dict[str, Any] | None = None
+        try:
+            final_response = await invoke_assistant_v2(resolved_payload)
+            final_payload = _response_json(
+                final_response,
+                session_id=session_id,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            final_payload = _stream_error_payload(
+                session_id=session_id,
+                request_id=request_id,
+                message="assistant_v2_stream_failed",
+                trace={
+                    "request_id": request_id,
+                    "error_stage": "stream",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
+        finally:
+            if final_payload is None:
+                final_payload = _stream_error_payload(
+                    session_id=session_id,
+                    request_id=request_id,
+                    message="assistant_v2_stream_missing_final",
+                    trace={
+                        "request_id": request_id,
+                        "error_stage": "stream",
+                        "error_type": "MissingFinalPayload",
+                        "error_message": "final payload not generated",
+                    },
+                )
+            yield _sse_event("final", final_payload)
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

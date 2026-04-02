@@ -5,7 +5,7 @@ Endpoint: `POST /assistant/v2/stream`
 Response headers:
 - `Content-Type: text/event-stream`
 
-The stream emits exactly three frames in order:
+The stream emits exactly three frames in order, each terminated by `\n\n`:
 
 1. `status` event with `start` marker.
 ```text
@@ -13,10 +13,15 @@ event: status
 data: {"status":"start","request_id":"req-...","session_id":"sess-..."}
 ```
 
-2. `final` event with the same payload shape returned by `POST /assistant/v2/invoke`.
+2. `final` event.
+
+- Normal path: same payload returned by `POST /assistant/v2/invoke`.
+- Fallback path (stream-level exception or decode failure): invoke-like error payload with keys:
+  `status`, `session_id`, `response`, `runtime_events`, `provenance`, `trace`, `error_message`.
+
 ```text
 event: final
-data: {"status":"final|need_more_info|error","session_id":"...","response":"...","runtime_events":[...],"provenance":{...},"trace":{...}}
+data: {"status":"final|need_more_info|error","session_id":"...","response":"...","runtime_events":[...],"provenance":{...},"trace":{...},"error_message":"...?"}
 ```
 
 3. Done marker.
@@ -25,5 +30,8 @@ data: [DONE]
 ```
 
 Notes:
-- The stream HTTP status is `200` even when the `final` payload contains `"status": "error"`.
-- The frontend should stop reading after receiving `data: [DONE]`.
+- `status` is always first.
+- `final` is always emitted exactly once.
+- `data: [DONE]` is always emitted exactly once and always after `final`.
+- Stream HTTP status is `200` even when `final` contains `"status": "error"`.
+- Frontend should stop reading after receiving `data: [DONE]`.
