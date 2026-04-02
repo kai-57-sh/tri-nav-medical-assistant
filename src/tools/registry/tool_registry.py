@@ -62,7 +62,7 @@ class ToolRegistry:
         name: str,
         payload: dict[str, Any],
         *,
-        envelope: bool = False,
+        envelope: bool = True,
     ) -> Any:
         """Invoke a tool by name with timeout protection and normalized errors."""
 
@@ -81,6 +81,11 @@ class ToolRegistry:
             raise ToolTimeoutError(name, spec.timeout_s) from exc
         except Exception as exc:
             raise ToolInvocationError(name, str(exc)) from exc
+
+    async def invoke_raw(self, name: str, payload: dict[str, Any]) -> Any:
+        """Compatibility helper that always returns raw handler output."""
+
+        return await self.invoke(name, payload, envelope=False)
 
     def _build_envelope(self, name: str, result: Any) -> ToolInvokeEnvelope:
         return {"tool": name, "ok": True, "result": result}

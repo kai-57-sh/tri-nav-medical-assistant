@@ -11,7 +11,7 @@ from src.tools.registry.tool_spec import ToolSpec
 
 
 @pytest.mark.asyncio
-async def test_tool_registry_invoke_default_returns_raw_result_for_compatibility() -> None:
+async def test_tool_registry_invoke_default_returns_envelope() -> None:
     registry = ToolRegistry()
 
     async def ping_tool(payload: dict[str, object]) -> dict[str, object]:
@@ -21,11 +21,15 @@ async def test_tool_registry_invoke_default_returns_raw_result_for_compatibility
 
     result = await registry.invoke("ping", {"ping": "ok"})
 
-    assert result == {"pong": "ok"}
+    assert result == {
+        "tool": "ping",
+        "ok": True,
+        "result": {"pong": "ok"},
+    }
 
 
 @pytest.mark.asyncio
-async def test_tool_registry_invoke_returns_envelope_in_explicit_mode() -> None:
+async def test_tool_registry_invoke_returns_raw_result_in_explicit_mode() -> None:
     registry = ToolRegistry()
 
     async def ping_tool(payload: dict[str, object]) -> dict[str, object]:
@@ -33,13 +37,9 @@ async def test_tool_registry_invoke_returns_envelope_in_explicit_mode() -> None:
 
     registry.register(ToolSpec(name="ping", handler=ping_tool, timeout_s=1.0))
 
-    result = await registry.invoke("ping", {"ping": "ok"}, envelope=True)
+    result = await registry.invoke("ping", {"ping": "ok"}, envelope=False)
 
-    assert result == {
-        "tool": "ping",
-        "ok": True,
-        "result": {"pong": "ok"},
-    }
+    assert result == {"pong": "ok"}
 
 
 @pytest.mark.asyncio

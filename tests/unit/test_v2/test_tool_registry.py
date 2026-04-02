@@ -25,7 +25,7 @@ async def test_register_and_invoke_async_tool() -> None:
 
     registry.register(ToolSpec(name="ping", handler=ping_tool, timeout_s=1.0))
 
-    result = await registry.invoke("ping", {"ping": "ok"})
+    result = await registry.invoke("ping", {"ping": "ok"}, envelope=False)
 
     assert result == {"pong": "ok"}
 
