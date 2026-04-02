@@ -10,6 +10,11 @@ from typing import Any
 
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
 
+try:
+    from redis.exceptions import RedisError
+except Exception:  # pragma: no cover - redis import fallback
+    RedisError = RuntimeError
+
 RedisServiceProvider = Callable[[], Any | Awaitable[Any]]
 
 _SNAPSHOT_KEY_PREFIX = "cache:snapshot:"
@@ -44,16 +49,16 @@ class RuntimeSnapshotRepository:
     async def upsert(self, session_id: str, snapshot: dict[str, Any]) -> None:
         """Insert or replace one session snapshot."""
 
+        # Keep in-memory mirror updated even when Redis is healthy so failover can replay state.
+        self._memory_store.upsert(session_id, snapshot)
+
         serialized = json.dumps(deepcopy(snapshot), ensure_ascii=False)
         redis_client = await self._get_redis_client()
         if redis_client is not None:
             try:
                 await redis_client.setex(self._session_key(session_id), self._ttl_seconds, serialized)
-                return
-            except (AttributeError, RuntimeError, TypeError, ValueError):
+            except (RedisError, Exception):
                 pass
-
-        self._memory_store.upsert(session_id, snapshot)
 
     async def load(self, session_id: str) -> dict[str, Any] | None:
         """Load one snapshot by session id."""
@@ -65,8 +70,9 @@ class RuntimeSnapshotRepository:
                 if isinstance(encoded, str) and encoded:
                     decoded = json.loads(encoded)
                     if isinstance(decoded, dict):
+                        self._memory_store.upsert(session_id, decoded)
                         return decoded
-            except (AttributeError, RuntimeError, TypeError, ValueError):
+            except (RedisError, Exception):
                 pass
 
         return self._memory_store.load(session_id)

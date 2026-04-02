@@ -9,6 +9,11 @@ from typing import Any
 
 from src.core.state.event_store import InMemoryEventStore
 
+try:
+    from redis.exceptions import RedisError
+except Exception:  # pragma: no cover - redis import fallback
+    RedisError = RuntimeError
+
 RedisServiceProvider = Callable[[], Any | Awaitable[Any]]
 
 _EVENT_KEY_PREFIX = "cache:events:"
@@ -48,6 +53,9 @@ class RuntimeEventRepository:
     async def append(self, session_id: str, event: dict[str, Any]) -> None:
         """Append one event for a session id."""
 
+        # Keep in-memory mirror updated even when Redis is healthy so failover can replay state.
+        self._memory_store.append(session_id, event)
+
         redis_client = await self._get_redis_client()
         if redis_client is not None:
             key = self._session_key(session_id)
@@ -56,11 +64,8 @@ class RuntimeEventRepository:
                 await redis_client.rpush(key, encoded)
                 await redis_client.ltrim(key, -self._max_events_per_session, -1)
                 await redis_client.expire(key, self._ttl_seconds)
-                return
-            except (AttributeError, RuntimeError, TypeError, ValueError):
+            except (RedisError, Exception):
                 pass
-
-        self._memory_store.append(session_id, event)
 
     async def list(self, session_id: str) -> list[dict[str, Any]]:
         """Return events for one session in append order."""
@@ -82,7 +87,7 @@ class RuntimeEventRepository:
                             parsed_events.append(item)
                     if parsed_events:
                         return parsed_events
-            except (AttributeError, RuntimeError, TypeError, ValueError):
+            except (RedisError, Exception):
                 pass
 
         return self._memory_store.list(session_id)
@@ -106,7 +111,7 @@ class RuntimeEventRepository:
                 for key in keys:
                     try:
                         total += int(await redis_client.llen(key))
-                    except (AttributeError, RuntimeError, TypeError, ValueError):
+                    except (RedisError, Exception):
                         return self._memory_store.event_count()
                 return total
 

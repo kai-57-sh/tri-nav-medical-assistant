@@ -19,8 +19,14 @@ class _FakeRedisClient:
         self._lists: dict[str, list[str]] = {}
         self._strings: dict[str, str] = {}
         self._ttl: dict[str, int] = {}
+        self.fail_rpush = False
+        self.fail_lrange = False
+        self.fail_setex = False
+        self.fail_get = False
 
     async def rpush(self, key: str, value: str) -> int:
+        if self.fail_rpush:
+            raise Exception("rpush failed")
         self._lists.setdefault(key, []).append(value)
         return len(self._lists[key])
 
@@ -34,6 +40,8 @@ class _FakeRedisClient:
         return True
 
     async def lrange(self, key: str, start: int, end: int) -> list[str]:
+        if self.fail_lrange:
+            raise Exception("lrange failed")
         values = self._lists.get(key, [])
         if end == -1:
             return values[start:]
@@ -43,11 +51,15 @@ class _FakeRedisClient:
         return len(self._lists.get(key, []))
 
     async def setex(self, key: str, ttl: int, value: str) -> bool:
+        if self.fail_setex:
+            raise Exception("setex failed")
         self._strings[key] = value
         self._ttl[key] = ttl
         return True
 
     async def get(self, key: str) -> str | None:
+        if self.fail_get:
+            raise Exception("get failed")
         return self._strings.get(key)
 
     async def scan_iter(self, *, match: str) -> Any:
@@ -114,6 +126,37 @@ async def test_event_repository_prefers_redis_data_over_memory_copy() -> None:
 
 
 @pytest.mark.asyncio
+async def test_event_repository_falls_back_when_redis_commands_raise() -> None:
+    shared_memory = InMemoryEventStore()
+    redis_client = _FakeRedisClient()
+    redis_client.fail_rpush = True
+    repository = RuntimeEventRepository(
+        memory_store=shared_memory,
+        redis_service_provider=lambda: _FakeRedisService(healthy=True, client=redis_client),
+    )
+
+    await repository.append("sess-event-errors", {"event_type": "runtime_started", "seq": 7})
+
+    assert await repository.list("sess-event-errors") == [{"event_type": "runtime_started", "seq": 7}]
+
+
+@pytest.mark.asyncio
+async def test_event_repository_keeps_memory_mirror_after_successful_redis_write() -> None:
+    shared_memory = InMemoryEventStore()
+    redis_client = _FakeRedisClient()
+    redis_service = _FakeRedisService(healthy=True, client=redis_client)
+    repository = RuntimeEventRepository(
+        memory_store=shared_memory,
+        redis_service_provider=lambda: redis_service,
+    )
+
+    await repository.append("sess-event-failover", {"event_type": "runtime_finished", "seq": 1})
+    redis_service.is_healthy = False
+
+    assert await repository.list("sess-event-failover") == [{"event_type": "runtime_finished", "seq": 1}]
+
+
+@pytest.mark.asyncio
 async def test_snapshot_repository_round_trips_with_fallback_memory() -> None:
     shared_memory = InMemorySnapshotStore()
     repository_a = build_snapshot_repository(
@@ -145,3 +188,35 @@ async def test_snapshot_repository_prefers_redis_data_over_memory_copy() -> None
     )
 
     assert await repository.load("sess-snapshot-redis") == {"status": "redis"}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_repository_falls_back_when_redis_commands_raise() -> None:
+    shared_memory = InMemorySnapshotStore()
+    redis_client = _FakeRedisClient()
+    redis_client.fail_setex = True
+    repository = RuntimeSnapshotRepository(
+        memory_store=shared_memory,
+        redis_service_provider=lambda: _FakeRedisService(healthy=True, client=redis_client),
+    )
+
+    await repository.upsert("sess-snapshot-errors", {"status": "error"})
+    redis_client.fail_get = True
+
+    assert await repository.load("sess-snapshot-errors") == {"status": "error"}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_repository_keeps_memory_mirror_after_successful_redis_write() -> None:
+    shared_memory = InMemorySnapshotStore()
+    redis_client = _FakeRedisClient()
+    redis_service = _FakeRedisService(healthy=True, client=redis_client)
+    repository = RuntimeSnapshotRepository(
+        memory_store=shared_memory,
+        redis_service_provider=lambda: redis_service,
+    )
+
+    await repository.upsert("sess-snapshot-failover", {"status": "final", "response": "ok"})
+    redis_service.is_healthy = False
+
+    assert await repository.load("sess-snapshot-failover") == {"status": "final", "response": "ok"}
