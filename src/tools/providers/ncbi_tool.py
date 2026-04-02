@@ -2,8 +2,6 @@
 
 from typing import Any
 
-from src.services.ncbi_service import get_ncbi_service
-
 _NCBI_MIN_RESULTS = 1
 _NCBI_MAX_RESULTS = 50
 
@@ -33,13 +31,19 @@ def _validate_max_results(payload: dict[str, Any]) -> int:
     return max_results
 
 
+def _get_ncbi_service() -> Any:
+    from src.services.ncbi_service import get_ncbi_service
+
+    return get_ncbi_service()
+
+
 async def ncbi_search_tool(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Adapter from generic payload to NCBI service call."""
 
     query = _validate_query(payload)
     max_results = _validate_max_results(payload)
 
-    return await get_ncbi_service().search_and_retrieve(
+    return await _get_ncbi_service().search_and_retrieve(
         query=query,
         max_results=max_results,
     )

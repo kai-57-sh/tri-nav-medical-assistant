@@ -3,8 +3,6 @@
 from numbers import Real
 from typing import Any
 
-from src.services.amap_service import get_amap_service
-
 
 def _validate_coordinate(payload: dict[str, Any], key: str, minimum: float, maximum: float) -> float:
     if key not in payload:
@@ -41,6 +39,12 @@ def _validate_radius_km(payload: dict[str, Any]) -> float:
     return radius_km_f
 
 
+def _get_amap_service() -> Any:
+    from src.services.amap_service import get_amap_service
+
+    return get_amap_service()
+
+
 async def amap_search_tool(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Adapter from generic payload to Amap hospital search call."""
 
@@ -48,7 +52,7 @@ async def amap_search_tool(payload: dict[str, Any]) -> list[dict[str, Any]]:
     lng = _validate_coordinate(payload, key="lng", minimum=-180.0, maximum=180.0)
     radius_km = _validate_radius_km(payload)
 
-    return await get_amap_service().search_hospitals(
+    return await _get_amap_service().search_hospitals(
         lat=lat,
         lng=lng,
         radius_km=radius_km,

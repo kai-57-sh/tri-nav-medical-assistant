@@ -109,7 +109,7 @@ async def test_ncbi_adapter_valid_payload_calls_service() -> None:
     mock_service = Mock()
     mock_service.search_and_retrieve = AsyncMock(return_value=[{"pmid": "1"}])
 
-    with patch("src.tools.providers.ncbi_tool.get_ncbi_service", return_value=mock_service):
+    with patch("src.tools.providers.ncbi_tool._get_ncbi_service", return_value=mock_service):
         result = await ncbi_search_tool({"query": "dermatitis", "max_results": 5})
 
     assert result == [{"pmid": "1"}]
@@ -147,7 +147,7 @@ async def test_amap_adapter_valid_payload_calls_service() -> None:
     mock_service = Mock()
     mock_service.search_hospitals = AsyncMock(return_value=[{"name": "h1"}])
 
-    with patch("src.tools.providers.amap_tool.get_amap_service", return_value=mock_service):
+    with patch("src.tools.providers.amap_tool._get_amap_service", return_value=mock_service):
         result = await amap_search_tool({"lat": 39.9, "lng": 116.4, "radius_km": 8.0})
 
     assert result == [{"name": "h1"}]
