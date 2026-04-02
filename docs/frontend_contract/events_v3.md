@@ -41,6 +41,20 @@ Error final payload uses:
 - `safety: {"risk_level": "low|high", "matched_rules": [...]}` (contract parity with invoke)
 - HTTP status remains 200 for the stream transport (v2 parity), even when the final payload status is `error`.
 
+## V4 Cutover Compatibility
+
+For v4 rollout/canary configuration, deployment runtime settings must include:
+
+- `v4_runtime_enabled=true`
+- `v4_canary_enabled=true`
+- `v4_gate_max_red_flag_miss_rate=0.01`
+
+When v4 runtime is enabled but traffic still enters `POST /assistant/v3/stream`, the SSE protocol contract stays unchanged:
+
+- frame order remains `status -> final -> [DONE]`
+- `final` payload still contains `status/session_id/trace_id/response/safety/runtime_events/provenance/trace`
+- gate or runtime failures are expressed by final payload `status: "error"` + `error_message`, while stream transport remains HTTP 200
+
 ## Done Marker
 
 ```text

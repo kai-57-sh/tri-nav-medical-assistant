@@ -1572,6 +1572,37 @@ LANGCHAIN_PROJECT=trinav-dev
 MAX_TEXT_LENGTH=2000
 MAX_CLARIFICATION_ROUNDS=2
 MAX_CLARIFICATION_QUESTIONS=3
+
+# === v4 灰度门禁 ===
+V4_RUNTIME_ENABLED=true
+V4_CANARY_ENABLED=true
+V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
+V4_GATE_MAX_P95_MS=6000
+```
+
+### A.1 v4 执行路径与灰度配置
+
+v4 切流时，服务执行路径建议按下列顺序验证：
+
+1. 客户端请求 `POST /assistant/v3/invoke` 或 `POST /assistant/v3/stream`
+2. v3 适配层注入 `metadata.runtime_mode=v3` 后委托到 assistant v2 入口
+3. assistant v2 统一入口进入 `RuntimeKernel`
+4. 若开启 canary，则在放量前执行 shadow/canary gate 指标检查
+
+运行态配置示例（发布平台配置项）：
+
+```ini
+v4_runtime_enabled=true
+v4_canary_enabled=true
+v4_gate_max_red_flag_miss_rate=0.01
+```
+
+对应环境变量示例：
+
+```ini
+V4_RUNTIME_ENABLED=true
+V4_CANARY_ENABLED=true
+V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
 ```
 
 ### B. 常用命令

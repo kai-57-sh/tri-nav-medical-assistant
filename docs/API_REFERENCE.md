@@ -39,6 +39,10 @@ TriNav API 提供医疗分诊和医院导航服务的 RESTful 接口。基于 La
 | 端点 | 方法 | 描述 | 认证 |
 |:-----|:-----|:-----|:-----|
 | `/assistant/invoke` | POST | 执行分诊评估 | 否 |
+| `/assistant/v3/invoke` | POST | v3 协议适配入口（JSON） | 否 |
+| `/assistant/v3/stream` | POST | v3 协议适配入口（SSE） | 否 |
+| `/assistant/v3/shadow/compare` | POST | v1/v3 影子比对（灰度验证） | 否 |
+| `/assistant/v3/runtime/doctor` | GET | v3 运行态诊断 | 否 |
 | `/health` | GET | 健康检查 | 否 |
 | `/` | GET | API 信息 | 否 |
 | `/docs` | GET | Swagger UI 文档 | 否 |
@@ -103,6 +107,34 @@ X-Response-Time: ms       # 响应时间（毫秒）
 | `URGENT` | 紧急 | 尽快就医（24 小时内） |
 | `ROUTINE` | 常规 | 预约门诊 |
 | `SELF_CARE` | 自我护理 | 家庭护理 + 观察 |
+
+### 3.5 v4 执行路径与灰度开关
+
+当前版本中，`/assistant/v3/*` 为协议适配层，核心执行入口统一收敛到 assistant v2 runtime kernel。
+
+典型执行路径：
+
+1. `POST /assistant/v3/invoke` 或 `POST /assistant/v3/stream`
+2. v3 适配层写入 `metadata.runtime_mode=v3`
+3. 委托到 assistant v2 统一入口
+4. 进入 runtime kernel 执行能力编排
+5. 若启用 canary，则结合 shadow 指标执行放量门禁
+
+发布配置示例（平台配置项）：
+
+```ini
+v4_runtime_enabled=true
+v4_canary_enabled=true
+v4_gate_max_red_flag_miss_rate=0.01
+```
+
+对应环境变量：
+
+```ini
+V4_RUNTIME_ENABLED=true
+V4_CANARY_ENABLED=true
+V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
+```
 
 ---
 
