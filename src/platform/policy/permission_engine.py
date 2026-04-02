@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from typing import Any
 from uuid import uuid4
 
@@ -21,7 +22,11 @@ class PermissionEngine:
     """Evaluate whether a tool invocation should be allowed."""
 
     def __init__(self, *, sensitive_tool_patterns: tuple[str, ...] | None = None) -> None:
-        patterns = sensitive_tool_patterns or ("vision",)
+        patterns = (
+            ("vision_extract", "vision_tool", "vision_*")
+            if sensitive_tool_patterns is None
+            else sensitive_tool_patterns
+        )
         self._sensitive_tool_patterns = tuple(pattern.lower() for pattern in patterns if pattern.strip())
         self._decisions: list[PolicyDecision] = []
 
@@ -33,33 +38,31 @@ class PermissionEngine:
     ) -> PolicyDecision:
         """Return an allow/deny decision for a tool invocation."""
 
+        _ = payload
         normalized_tool_name = tool_name.strip()
-        normalized_payload = payload or {}
         normalized_context = context or {}
 
         if not normalized_tool_name:
             return self._record_decision(
                 allow=False,
-                reason="Denied: tool name must be a non-empty string.",
+                reason="invalid_tool_name",
             )
 
         if not self._is_sensitive_tool(normalized_tool_name):
             return self._record_decision(
                 allow=True,
-                reason="Allowed: tool is not classified as sensitive.",
+                reason="non_sensitive_tool",
             )
 
-        if self._has_sensitive_tool_consent(normalized_tool_name, normalized_payload, normalized_context):
+        if self._has_sensitive_tool_consent(normalized_tool_name, normalized_context):
             return self._record_decision(
                 allow=True,
-                reason="Allowed: sensitive tool consent present.",
+                reason="consent_present",
             )
 
         return self._record_decision(
             allow=False,
-            reason=(
-                f"Denied: '{normalized_tool_name}' is sensitive and requires explicit consent."
-            ),
+            reason="missing_patient_consent",
         )
 
     def list_decisions(self) -> list[PolicyDecision]:
@@ -78,26 +81,24 @@ class PermissionEngine:
 
     def _is_sensitive_tool(self, tool_name: str) -> bool:
         lowered_name = tool_name.lower()
-        return any(pattern in lowered_name for pattern in self._sensitive_tool_patterns)
+        return any(fnmatchcase(lowered_name, pattern) for pattern in self._sensitive_tool_patterns)
 
     def _has_sensitive_tool_consent(
         self,
         tool_name: str,
-        payload: Mapping[str, Any],
         context: Mapping[str, Any],
     ) -> bool:
-        for source in (context, payload):
-            if self._extract_direct_consent(source):
-                return True
+        if self._extract_direct_consent(context):
+            return True
 
-            consents = source.get("consents")
-            if isinstance(consents, Mapping):
-                if self._is_truthy(consents.get(tool_name)):
-                    return True
-                if self._is_truthy(consents.get("vision")):
-                    return True
-                if self._is_truthy(consents.get("sensitive_tools")):
-                    return True
+        consents = context.get("consents")
+        if isinstance(consents, Mapping):
+            if self._is_truthy(consents.get(tool_name)):
+                return True
+            if self._is_truthy(consents.get("vision")):
+                return True
+            if self._is_truthy(consents.get("sensitive_tools")):
+                return True
 
         return False
 

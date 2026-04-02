@@ -40,7 +40,7 @@ def test_permission_engine_denies_sensitive_vision_tool_without_consent() -> Non
     decision = engine.decide("vision_extract", payload={"image_base64": "abc"}, context={})
 
     assert decision.allow is False
-    assert "consent" in decision.reason.lower()
+    assert decision.reason == "missing_patient_consent"
     assert decision.decision_id
 
 
@@ -55,6 +55,7 @@ def test_permission_engine_allows_sensitive_tool_when_consent_present() -> None:
     )
 
     assert decision.allow is True
+    assert decision.reason == "consent_present"
     assert decision.decision_id
 
 
@@ -67,6 +68,31 @@ async def test_tool_gateway_denies_before_executing_tool() -> None:
         await gateway.invoke("vision_extract", {"image_base64": "abc"}, context={})
 
     assert registry.calls == []
+
+
+def test_permission_engine_does_not_trust_payload_for_sensitive_consent() -> None:
+    engine = PermissionEngine()
+
+    decision = engine.decide(
+        "vision_extract",
+        payload={"image_base64": "abc", "consent": True},
+        context={},
+    )
+
+    assert decision.allow is False
+    assert decision.reason == "missing_patient_consent"
+
+
+def test_permission_engine_avoids_substring_false_positive_and_allows_empty_pattern_config() -> None:
+    default_engine = PermissionEngine()
+    default_decision = default_engine.decide("provision_fetch", payload={}, context={})
+    assert default_decision.allow is True
+    assert default_decision.reason == "non_sensitive_tool"
+
+    permissive_engine = PermissionEngine(sensitive_tool_patterns=())
+    no_sensitive_decision = permissive_engine.decide("vision_extract", payload={}, context={})
+    assert no_sensitive_decision.allow is True
+    assert no_sensitive_decision.reason == "non_sensitive_tool"
 
 
 @pytest.mark.asyncio
