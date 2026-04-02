@@ -86,6 +86,13 @@ add_routes(
     output_type=dict,
 )
 
+try:
+    from .interfaces.api.assistant_v2 import router as assistant_v2_router
+
+    app.include_router(assistant_v2_router)
+except Exception as exc:  # pragma: no cover - defensive import guard
+    logger.warning("assistant_v2 router registration skipped: %s", exc)
+
 
 @app.get("/health")
 async def health_check():
