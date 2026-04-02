@@ -32,31 +32,48 @@ class _FakePipeline:
         for op, args in self._ops:
             if op == "rpush":
                 key, value = args
-                self._redis._lists.setdefault(key, []).append(value)
+                await self._redis.rpush(key, value)
             elif op == "ltrim":
                 key, start, end = args
-                values = self._redis._lists.get(key, [])
-                self._redis._lists[key] = values[start : end + 1 if end != -1 else None]
+                await self._redis.ltrim(key, start, end)
             elif op == "expire":
                 key, ttl = args
-                self._redis._ttl_by_key[key] = ttl
+                await self._redis.expire(key, ttl)
         return [True for _ in self._ops]
 
 
 class _FakeRedisClient:
     def __init__(self) -> None:
         self._lists: dict[str, list[str]] = {}
+        self._string_values: dict[str, str] = {}
         self._ttl_by_key: dict[str, int] = {}
         self.fail_pipeline_execute = False
 
     def pipeline(self) -> _FakePipeline:
         return _FakePipeline(self, fail_execute=self.fail_pipeline_execute)
 
+    def set_string(self, key: str, value: str) -> None:
+        self._string_values[key] = value
+
+    async def delete(self, key: str) -> int:
+        deleted = 0
+        if key in self._lists:
+            del self._lists[key]
+            deleted += 1
+        if key in self._string_values:
+            del self._string_values[key]
+            deleted += 1
+        return deleted
+
     async def rpush(self, key: str, value: str) -> int:
+        if key in self._string_values:
+            raise RuntimeError("WRONGTYPE Operation against a key holding the wrong kind of value")
         self._lists.setdefault(key, []).append(value)
         return len(self._lists[key])
 
     async def ltrim(self, key: str, start: int, end: int) -> bool:
+        if key in self._string_values:
+            raise RuntimeError("WRONGTYPE Operation against a key holding the wrong kind of value")
         values = self._lists.get(key, [])
         self._lists[key] = values[start : end + 1 if end != -1 else None]
         return True
@@ -70,12 +87,23 @@ class _BaseFakeRedisService:
     def __init__(self) -> None:
         self.redis = _FakeRedisClient()
         self.is_healthy = True
-        self.load_cached_result = None
-        self.cache_external_result = None
 
 
 class _SimpleRedisService(_BaseFakeRedisService):
     pass
+
+
+class _LegacyMigrationRedisService(_BaseFakeRedisService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.load_cached_result_calls: list[str] = []
+        self._legacy_payload = {
+            "events": [{"event_type": "runtime_started", "id": "legacy-a"}]
+        }
+
+    async def load_cached_result(self, cache_key: str) -> dict[str, Any] | None:
+        self.load_cached_result_calls.append(cache_key)
+        return self._legacy_payload
 
 
 @pytest.mark.asyncio
@@ -124,6 +152,22 @@ async def test_redis_event_store_preserves_list_history_when_pipeline_fails() ->
     persisted_events = [json.loads(item) for item in encoded_events]
     assert len(persisted_events) == 2
     assert [event["id"] for event in persisted_events] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_redis_event_store_migrates_legacy_string_key_and_appends() -> None:
+    fake = _LegacyMigrationRedisService()
+    fake.redis.set_string("cache:events:sess-1", '{"events":[{"event_type":"legacy"}]}')
+    store = RedisEventStore(fake)
+
+    await store.append("sess-1", {"event_type": "capability_completed", "id": "new-b"})
+
+    encoded_events = fake.redis._lists.get("cache:events:sess-1", [])
+    persisted_events = [json.loads(item) for item in encoded_events]
+    assert [event["id"] for event in persisted_events] == ["legacy-a", "new-b"]
+    assert fake.redis._ttl_by_key["cache:events:sess-1"] == 3600
+    assert "cache:events:sess-1" not in fake.redis._string_values
+    assert fake.load_cached_result_calls == ["events:sess-1"]
 
 
 @pytest.mark.asyncio
