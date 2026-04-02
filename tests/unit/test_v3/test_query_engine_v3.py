@@ -60,6 +60,14 @@ class ExplodingPlanner:
         raise RuntimeError("planner boom")
 
 
+class AsyncEventStore:
+    def __init__(self) -> None:
+        self.events: list[dict[str, JSONValue]] = []
+
+    async def append(self, session_id: str, event: dict[str, JSONValue]) -> None:
+        self.events.append({"session_id": session_id, **event})
+
+
 @pytest.mark.asyncio
 async def test_query_engine_uses_planner_for_default_execution_path() -> None:
     calls: list[str] = []
@@ -128,3 +136,21 @@ async def test_query_engine_emits_failure_lifecycle_when_planner_raises() -> Non
     assert events[1]["data"]["error_stage"] == "planner"
     assert events[2]["data"]["success"] is False
     assert events[2]["data"]["capabilities_executed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_query_engine_awaits_async_event_store_append() -> None:
+    calls: list[str] = []
+    capability = StubCapability(name="triage", calls=calls)
+    store = AsyncEventStore()
+    ctx = ExecutionContext(request_id="req-v3-4", session_id="sess-v3-4", text="fever")
+    engine = QueryEngine([capability], event_store=store)
+
+    await engine.run(ctx)
+
+    assert [event["event_type"] for event in store.events] == [
+        "runtime_started",
+        "capability_completed",
+        "runtime_finished",
+    ]
+    assert all(event["session_id"] == "sess-v3-4" for event in store.events)

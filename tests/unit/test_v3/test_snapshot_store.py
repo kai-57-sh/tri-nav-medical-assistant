@@ -19,3 +19,17 @@ def test_snapshot_store_returns_copies() -> None:
 
     loaded["triage_level"] = "LOW"
     assert store.load("sess-1") == {"triage_level": "URGENT"}
+
+
+def test_snapshot_store_deep_copies_nested_structures() -> None:
+    store = InMemorySnapshotStore()
+    payload = {"profile": {"symptoms": ["fever"]}}
+
+    store.upsert("sess-1", payload)
+    payload["profile"]["symptoms"].append("cough")
+
+    loaded = store.load("sess-1")
+    assert loaded == {"profile": {"symptoms": ["fever"]}}
+
+    loaded["profile"]["symptoms"].append("headache")
+    assert store.load("sess-1") == {"profile": {"symptoms": ["fever"]}}

@@ -1,5 +1,6 @@
 """Runtime query engine orchestration for TriNav v2."""
 
+import inspect
 from typing import Any, Protocol
 
 from src.core.capability.planner import PlannerProtocol
@@ -14,7 +15,7 @@ from src.core.runtime.types import CapabilityResult, RuntimeStop
 class EventStoreProtocol(Protocol):
     """Protocol for runtime event persistence backends."""
 
-    def append(self, session_id: str, event: dict[str, Any]) -> None:
+    def append(self, session_id: str, event: dict[str, Any]) -> Any:
         """Store one runtime event under the given session."""
 
 
@@ -50,7 +51,7 @@ class QueryEngine:
             planned_capabilities = self._planner.plan(context, capabilities_by_name)
         return SequentialExecutor(planned_capabilities)
 
-    def _emit_runtime_event(
+    async def _emit_runtime_event(
         self,
         *,
         event_type: str,
@@ -72,14 +73,16 @@ class QueryEngine:
             data=payload,
         )
         if self._event_store is not None:
-            self._event_store.append(session_id, event.model_dump(mode="json"))
+            append_result = self._event_store.append(session_id, event.model_dump(mode="json"))
+            if inspect.isawaitable(append_result):
+                await append_result
 
     async def run(self, context: ExecutionContext) -> list[CapabilityResult]:
         """Run the configured capabilities and emit lifecycle events."""
 
         raw_trace_id = context.metadata.get("trace_id")
         trace_id = raw_trace_id if isinstance(raw_trace_id, str) and raw_trace_id else None
-        self._emit_runtime_event(
+        await self._emit_runtime_event(
             event_type="runtime_started",
             request_id=context.request_id,
             session_id=context.session_id,
@@ -90,14 +93,14 @@ class QueryEngine:
             stop_reason = self._budget.check_elapsed()
             if stop_reason is not None:
                 stop = RuntimeStop(reason=stop_reason)
-                self._emit_runtime_event(
+                await self._emit_runtime_event(
                     event_type="runtime_stopped",
                     request_id=context.request_id,
                     session_id=context.session_id,
                     trace_id=trace_id,
                     data=stop.model_dump(mode="json"),
                 )
-                self._emit_runtime_event(
+                await self._emit_runtime_event(
                     event_type="runtime_finished",
                     request_id=context.request_id,
                     session_id=context.session_id,
@@ -126,7 +129,7 @@ class QueryEngine:
                 raise
         finally:
             for result in results:
-                self._emit_runtime_event(
+                await self._emit_runtime_event(
                     event_type="capability_completed",
                     request_id=context.request_id,
                     session_id=context.session_id,
@@ -135,7 +138,7 @@ class QueryEngine:
                 )
 
             if escaped_error is not None:
-                self._emit_runtime_event(
+                await self._emit_runtime_event(
                     event_type="runtime_failed",
                     request_id=context.request_id,
                     session_id=context.session_id,
@@ -147,7 +150,7 @@ class QueryEngine:
                     },
                 )
 
-            self._emit_runtime_event(
+            await self._emit_runtime_event(
                 event_type="runtime_finished",
                 request_id=context.request_id,
                 session_id=context.session_id,
