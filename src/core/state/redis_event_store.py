@@ -21,8 +21,13 @@ class RedisEventStore:
     _TTL_SECONDS = 3600
     _MAX_EVENTS_PER_SESSION = 200
     _MIGRATION_LOCK_SECONDS = 5
-    _MIGRATION_APPEND_RETRIES = 20
     _MIGRATION_RETRY_DELAY_SECONDS = 0.01
+    _MIGRATION_RETRY_TIMEOUT_BUFFER_SECONDS = 1.0
+    _LOCK_RELEASE_CAS_LUA = (
+        "if redis.call('get', KEYS[1]) == ARGV[1] then "
+        "return redis.call('del', KEYS[1]) "
+        "else return 0 end"
+    )
 
     def __init__(self, redis_service: "RedisService") -> None:
         self._redis = redis_service
@@ -160,6 +165,15 @@ class RedisEventStore:
     async def _release_migration_lock(
         self, redis_client: Any, lock_key: str, lock_token: str
     ) -> None:
+        lock_eval = getattr(redis_client, "eval", None)
+        if callable(lock_eval):
+            try:
+                await lock_eval(self._LOCK_RELEASE_CAS_LUA, 1, lock_key, lock_token)
+                return
+            except (RedisError, RuntimeError, AttributeError, TypeError):
+                # Graceful fallback when eval is unavailable/unsupported.
+                pass
+
         lock_get = getattr(redis_client, "get", None)
         lock_delete = getattr(redis_client, "delete", None)
         if not callable(lock_delete):
@@ -182,7 +196,12 @@ class RedisEventStore:
     async def _retry_append_after_migration(
         self, redis_client: Any, session_id: str, event: dict[str, Any]
     ) -> bool:
-        for _ in range(self._MIGRATION_APPEND_RETRIES):
+        retry_deadline = (
+            asyncio.get_running_loop().time()
+            + self._MIGRATION_LOCK_SECONDS
+            + self._MIGRATION_RETRY_TIMEOUT_BUFFER_SECONDS
+        )
+        while True:
             append_ok, append_error = await self._append_without_pipeline(
                 redis_client=redis_client, session_id=session_id, event=event
             )
@@ -190,5 +209,6 @@ class RedisEventStore:
                 return True
             if not self._is_wrongtype_error(append_error):
                 return False
+            if asyncio.get_running_loop().time() >= retry_deadline:
+                return False
             await asyncio.sleep(self._MIGRATION_RETRY_DELAY_SECONDS)
-        return False

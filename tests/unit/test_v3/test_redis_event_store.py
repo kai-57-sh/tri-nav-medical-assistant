@@ -48,6 +48,10 @@ class _FakeRedisClient:
         self._string_values: dict[str, str] = {}
         self._ttl_by_key: dict[str, int] = {}
         self.fail_pipeline_execute = False
+        self.eval_supported = True
+        self.fail_eval = False
+        self.eval_calls: list[tuple[str, int, str, str]] = []
+        self.get_calls: list[str] = []
 
     def pipeline(self) -> _FakePipeline:
         return _FakePipeline(self, fail_execute=self.fail_pipeline_execute)
@@ -66,7 +70,19 @@ class _FakeRedisClient:
         return True
 
     async def get(self, key: str) -> str | None:
+        self.get_calls.append(key)
         return self._string_values.get(key)
+
+    async def eval(self, script: str, numkeys: int, key: str, token: str) -> int:
+        if not self.eval_supported:
+            raise AttributeError("eval unsupported")
+        if self.fail_eval:
+            raise RuntimeError("eval failed")
+        self.eval_calls.append((script, numkeys, key, token))
+        if self._string_values.get(key) == token:
+            del self._string_values[key]
+            return 1
+        return 0
 
     async def delete(self, key: str) -> int:
         deleted = 0
@@ -124,13 +140,17 @@ class _ContendedLegacyMigrationRedisService(_LegacyMigrationRedisService):
         super().__init__()
         self._load_call_count = 0
         self._second_load_called = asyncio.Event()
+        self._migration_hold_timeout_seconds = 0.35
 
     async def load_cached_result(self, cache_key: str) -> dict[str, Any] | None:
         self.load_cached_result_calls.append(cache_key)
         self._load_call_count += 1
         if self._load_call_count == 1:
             try:
-                await asyncio.wait_for(self._second_load_called.wait(), timeout=0.05)
+                await asyncio.wait_for(
+                    self._second_load_called.wait(),
+                    timeout=self._migration_hold_timeout_seconds,
+                )
             except TimeoutError:
                 pass
         else:
@@ -200,6 +220,18 @@ async def test_redis_event_store_migrates_legacy_string_key_and_appends() -> Non
     assert fake.redis._ttl_by_key["cache:events:sess-1"] == 3600
     assert "cache:events:sess-1" not in fake.redis._string_values
     assert fake.load_cached_result_calls == ["events:sess-1"]
+
+
+@pytest.mark.asyncio
+async def test_redis_event_store_uses_eval_for_atomic_lock_release() -> None:
+    fake = _LegacyMigrationRedisService()
+    fake.redis.set_string("cache:events:sess-1", '{"events":[{"event_type":"legacy"}]}')
+    store = RedisEventStore(fake)
+
+    await store.append("sess-1", {"event_type": "capability_completed", "id": "new-b"})
+
+    assert any(call[2] == "lock:events:migrate:sess-1" for call in fake.redis.eval_calls)
+    assert "lock:events:migrate:sess-1" not in fake.redis.get_calls
 
 
 @pytest.mark.asyncio
