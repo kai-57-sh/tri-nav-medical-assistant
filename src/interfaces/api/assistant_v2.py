@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
@@ -58,6 +60,24 @@ def _normalize_status(runtime_status: Any) -> str:
     if isinstance(runtime_status, str) and runtime_status in _ALLOWED_STATUSES:
         return runtime_status
     return "error"
+
+
+def _sse_event(event: str, data: Any) -> str:
+    """Serialize one SSE event frame."""
+
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _response_json(response: JSONResponse) -> dict[str, Any]:
+    """Decode JSONResponse content for SSE final payload emission."""
+
+    try:
+        decoded = json.loads(response.body.decode("utf-8"))
+    except Exception:
+        return {"status": "error", "error_message": "assistant_v2_stream_invalid_payload"}
+    if isinstance(decoded, dict):
+        return decoded
+    return {"status": "error", "error_message": "assistant_v2_stream_invalid_payload"}
 
 
 @router.post("/invoke")
@@ -154,3 +174,27 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     message = error_message if isinstance(error_message, str) else "; ".join(primary.errors)
     body["error_message"] = message or "assistant_v2_runtime_failed"
     return JSONResponse(status_code=503, content=body)
+
+
+@router.post("/stream")
+async def stream_assistant_v2(payload: AssistantV2InvokePayload) -> StreamingResponse:
+    """Stream invoke result as SSE status/final events and [DONE] marker."""
+
+    request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
+    session_id = (payload.session_id or "").strip() or str(uuid4())
+    resolved_payload = payload.model_copy(update={"request_id": request_id, "session_id": session_id})
+
+    async def event_stream() -> AsyncIterator[str]:
+        yield _sse_event(
+            "status",
+            {
+                "status": "start",
+                "request_id": request_id,
+                "session_id": session_id,
+            },
+        )
+        final_response = await invoke_assistant_v2(resolved_payload)
+        yield _sse_event("final", _response_json(final_response))
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
