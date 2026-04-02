@@ -1,5 +1,5 @@
 """Amap service for hospital navigation and route planning."""
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -19,7 +19,7 @@ class AmapService:
     Implements graceful degradation per FR-038, FR-046.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Amap service."""
         self.api_key = settings.amap_api_key
         self.base_url = "https://restapi.amap.com/v3"
@@ -55,7 +55,7 @@ class AmapService:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
-                result = response.json()
+                result = cast(dict[str, Any], response.json())
 
                 # Check Amap response status
                 if result.get("status") == "1" and result.get("info") == "OK":

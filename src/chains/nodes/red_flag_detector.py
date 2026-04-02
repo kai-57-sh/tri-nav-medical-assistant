@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from src.chains.nodes.base import safe_node
 from src.utils.logging_config import get_logger
@@ -21,7 +21,9 @@ def _load_red_flag_rules() -> list[dict[str, Any]]:
     try:
         with open(config_path, encoding='utf-8') as f:
             rules = yaml.safe_load(f)
-        return rules
+        if not isinstance(rules, list):
+            return []
+        return [rule for rule in rules if isinstance(rule, dict)]
     except Exception as e:
         logger.error(f"Failed to load red flag rules: {e}")
         return []

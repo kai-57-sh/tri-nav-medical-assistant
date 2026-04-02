@@ -10,11 +10,6 @@ from typing import Any
 
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
 
-try:
-    from redis.exceptions import RedisError
-except Exception:  # pragma: no cover - redis import fallback
-    RedisError = RuntimeError
-
 RedisServiceProvider = Callable[[], Any | Awaitable[Any]]
 
 _SNAPSHOT_KEY_PREFIX = "cache:snapshot:"
@@ -57,7 +52,7 @@ class RuntimeSnapshotRepository:
         if redis_client is not None:
             try:
                 await redis_client.setex(self._session_key(session_id), self._ttl_seconds, serialized)
-            except (RedisError, Exception):
+            except Exception:
                 pass
 
     async def load(self, session_id: str) -> dict[str, Any] | None:
@@ -72,7 +67,7 @@ class RuntimeSnapshotRepository:
                     if isinstance(decoded, dict):
                         self._memory_store.upsert(session_id, decoded)
                         return decoded
-            except (RedisError, Exception):
+            except Exception:
                 pass
 
         return self._memory_store.load(session_id)

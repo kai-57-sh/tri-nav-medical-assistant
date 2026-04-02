@@ -1,7 +1,7 @@
 """NCBI service for PubMed literature retrieval."""
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -21,7 +21,7 @@ class NCBIService:
     Implements graceful degradation per FR-032.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize NCBI service."""
         self.base_url = settings.ncbi_base_url
         self._healthy = True
@@ -58,7 +58,7 @@ class NCBIService:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
-                result = response.json()
+                result = cast(dict[str, Any], response.json())
 
                 self._healthy = True
                 set_external_service_health("ncbi", True)
@@ -120,7 +120,13 @@ class NCBIService:
             return []
 
         try:
-            pmids = result["esearchresult"].get("idlist", [])
+            esearch_result = result["esearchresult"]
+            if not isinstance(esearch_result, dict):
+                return []
+            raw_pmids = esearch_result.get("idlist", [])
+            if not isinstance(raw_pmids, list):
+                return []
+            pmids = [str(pmid) for pmid in raw_pmids]
             logger.info(f"Found {len(pmids)} articles for query", extra={"query": query})
             return pmids
 

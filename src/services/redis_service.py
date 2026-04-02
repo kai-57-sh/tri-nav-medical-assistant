@@ -1,7 +1,7 @@
 """Redis service for session management."""
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import RedisError
@@ -18,7 +18,7 @@ settings = get_settings()
 class RedisService:
     """Redis service for session state management with graceful degradation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Redis service with connection pooling."""
         self.pool: ConnectionPool | None = None
         self.redis: Redis | None = None
@@ -37,7 +37,11 @@ class RedisService:
             self.redis = Redis(connection_pool=self.pool)
 
             # Test connection
-            await self.redis.ping()
+            ping_result = self.redis.ping()
+            if isinstance(ping_result, bool):
+                _ = ping_result
+            else:
+                await ping_result
             self._healthy = True
             set_external_service_health("redis", True)
             logger.info("Redis connection established")
@@ -59,7 +63,7 @@ class RedisService:
         self,
         session_id: str,
         state: dict[str, Any],
-        ttl: int = None
+        ttl: int | None = None
     ) -> bool:
         """Save session state to Redis.
 
@@ -127,7 +131,7 @@ class RedisService:
                 logger.debug(f"Session not found: {session_id}")
                 return None
 
-            session_state = json.loads(data)
+            session_state = cast(dict[str, Any], json.loads(data))
             logger.debug(f"Session loaded: {session_id}", extra={"session_id": session_id})
             return session_state
 
@@ -211,7 +215,7 @@ class RedisService:
             if not data:
                 return None
 
-            return json.loads(data)
+            return cast(dict[str, Any], json.loads(data))
 
         except RedisError as e:
             logger.error(f"Failed to load cached result {cache_key}: {e}")

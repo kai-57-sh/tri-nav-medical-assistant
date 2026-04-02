@@ -4,7 +4,7 @@ This module builds the 18-node triage workflow using LangGraph 1.0.5+.
 State is passed between nodes as a TypedDict, with conditional routing
 based on triage decisions.
 """
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from langgraph.graph import END, StateGraph
 
@@ -129,7 +129,7 @@ async def _should_skip_clinical(state: TriageState) -> bool:
     return nav_only and has_triage
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> Any:
     """Build the LangGraph StateGraph for triage workflow.
 
     Returns:
@@ -139,25 +139,25 @@ def build_graph() -> StateGraph:
     graph = StateGraph(TriageState)
 
     # === Add all nodes ===
-    graph.add_node("input_validator", input_validator)
-    graph.add_node("session_loader", session_load)
-    graph.add_node("navigation_intent_detector", navigation_intent_detector)
-    graph.add_node("image_quality_gate", image_quality_gate)
-    graph.add_node("vision_extract", vision_extract)
-    graph.add_node("clinical_extractor", clinical_extractor)
-    graph.add_node("red_flag_detector", red_flag_detector)
-    graph.add_node("triage_classifier", triage_classifier)
-    graph.add_node("triage_merger", triage_merger)
-    graph.add_node("clarification_generator", clarification_generator)
-    graph.add_node("evidence_router", evidence_router)
-    graph.add_node("ncbi_query_builder", ncbi_query_builder)
-    graph.add_node("ncbi_retriever_tool", ncbi_retriever_tool)
-    graph.add_node("domain_classifier", domain_classifier)
-    graph.add_node("navigator", navigator)
-    graph.add_node("weather_fetcher", weather_fetcher)
-    graph.add_node("session_saver", session_save)
-    graph.add_node("reasoning_verifier", reasoning_verifier)
-    graph.add_node("final_status_router", final_status_router)
+    graph.add_node("input_validator", cast(Any, input_validator))
+    graph.add_node("session_loader", cast(Any, session_load))
+    graph.add_node("navigation_intent_detector", cast(Any, navigation_intent_detector))
+    graph.add_node("image_quality_gate", cast(Any, image_quality_gate))
+    graph.add_node("vision_extract", cast(Any, vision_extract))
+    graph.add_node("clinical_extractor", cast(Any, clinical_extractor))
+    graph.add_node("red_flag_detector", cast(Any, red_flag_detector))
+    graph.add_node("triage_classifier", cast(Any, triage_classifier))
+    graph.add_node("triage_merger", cast(Any, triage_merger))
+    graph.add_node("clarification_generator", cast(Any, clarification_generator))
+    graph.add_node("evidence_router", cast(Any, evidence_router))
+    graph.add_node("ncbi_query_builder", cast(Any, ncbi_query_builder))
+    graph.add_node("ncbi_retriever_tool", cast(Any, ncbi_retriever_tool))
+    graph.add_node("domain_classifier", cast(Any, domain_classifier))
+    graph.add_node("navigator", cast(Any, navigator))
+    graph.add_node("weather_fetcher", cast(Any, weather_fetcher))
+    graph.add_node("session_saver", cast(Any, session_save))
+    graph.add_node("reasoning_verifier", cast(Any, reasoning_verifier))
+    graph.add_node("final_status_router", cast(Any, final_status_router))
 
     # === Define edges (full workflow with US1, US2, US3) ===
 

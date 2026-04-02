@@ -1,16 +1,17 @@
 """Base node decorator with error handling and logging."""
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from src.utils.logging_config import get_logger, set_correlation_id
 from src.utils.metrics import record_error
 
 logger = get_logger(__name__)
+F = TypeVar("F", bound=Callable[..., Any])
 
 
-def safe_node(node_name: str, raise_on_error: bool = False):
+def safe_node(node_name: str, raise_on_error: bool = False) -> Callable[[F], F]:
     """Decorator for LangGraph nodes with error handling and logging.
 
     Args:
@@ -20,7 +21,7 @@ def safe_node(node_name: str, raise_on_error: bool = False):
     Returns:
         Decorator function
     """
-    def decorator(func: Callable):
+    def decorator(func: F) -> F:
         @wraps(func)
         async def wrapper(state: dict[str, Any]) -> dict[str, Any]:
             # Set correlation ID if not present
@@ -38,7 +39,8 @@ def safe_node(node_name: str, raise_on_error: bool = False):
                 })
 
                 # Execute node function
-                result = await func(state)
+                typed_func = cast(Callable[[dict[str, Any]], Awaitable[dict[str, Any]]], func)
+                result = await typed_func(state)
 
                 # Merge result with state
                 updated_state = {**state, **result}
@@ -94,5 +96,5 @@ def safe_node(node_name: str, raise_on_error: bool = False):
                     "error_message": "系统暂时繁忙，请稍后重试"
                 }
 
-        return wrapper
+        return cast(F, wrapper)
     return decorator

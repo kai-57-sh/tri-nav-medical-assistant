@@ -4,7 +4,7 @@ Open-Meteo is a free open-source weather API that requires no API key.
 Official documentation: https://open-meteo.com/
 GitHub: https://github.com/open-meteo/open-meteo
 """
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -56,7 +56,7 @@ class OpenMeteoService:
         99: "雷雨伴冰雹"
     }
 
-    def __init__(self, timeout: float = 10.0):
+    def __init__(self, timeout: float = 10.0) -> None:
         """Initialize Open-Meteo weather service.
 
         Args:
@@ -89,7 +89,7 @@ class OpenMeteoService:
             # Endpoint: /forecast
             # Parameters: current weather data
             url = f"{self.API_BASE_URL}/forecast"
-            params = {
+            params: dict[str, str | float] = {
                 "latitude": lat,
                 "longitude": lng,
                 "current": "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m",
@@ -99,7 +99,7 @@ class OpenMeteoService:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
-                result = response.json()
+                result = cast(dict[str, Any], response.json())
 
                 self._healthy = True
                 set_external_service_health("weather", True)

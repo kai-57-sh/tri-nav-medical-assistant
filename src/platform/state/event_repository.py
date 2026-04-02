@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
+import builtins
 import inspect
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.core.state.event_store import InMemoryEventStore
-
-try:
-    from redis.exceptions import RedisError
-except Exception:  # pragma: no cover - redis import fallback
-    RedisError = RuntimeError
 
 RedisServiceProvider = Callable[[], Any | Awaitable[Any]]
 
@@ -64,7 +60,7 @@ class RuntimeEventRepository:
                 await redis_client.rpush(key, encoded)
                 await redis_client.ltrim(key, -self._max_events_per_session, -1)
                 await redis_client.expire(key, self._ttl_seconds)
-            except (RedisError, Exception):
+            except Exception:
                 pass
 
     async def list(self, session_id: str) -> list[dict[str, Any]]:
@@ -87,7 +83,7 @@ class RuntimeEventRepository:
                             parsed_events.append(item)
                     if parsed_events:
                         return parsed_events
-            except (RedisError, Exception):
+            except Exception:
                 pass
 
         return self._memory_store.list(session_id)
@@ -111,7 +107,7 @@ class RuntimeEventRepository:
                 for key in keys:
                     try:
                         total += int(await redis_client.llen(key))
-                    except (RedisError, Exception):
+                    except Exception:
                         return self._memory_store.event_count()
                 return total
 
@@ -150,7 +146,7 @@ class RuntimeEventRepository:
             return None
         return len(keys)
 
-    async def _list_redis_keys(self, redis_client: Any) -> list[str] | None:
+    async def _list_redis_keys(self, redis_client: Any) -> builtins.list[str] | None:
         scan_iter = getattr(redis_client, "scan_iter", None)
         if not callable(scan_iter):
             return None
@@ -161,7 +157,7 @@ class RuntimeEventRepository:
         except Exception:
             return None
 
-        keys: list[str] = []
+        keys: builtins.list[str] = []
         try:
             if hasattr(iterator, "__aiter__"):
                 async for raw_key in iterator:
