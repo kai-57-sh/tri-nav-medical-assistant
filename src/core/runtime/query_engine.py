@@ -106,15 +106,24 @@ class QueryEngine:
                 )
                 return []
 
-        executor = self._get_executor(context)
         results: list[CapabilityResult] = []
         escaped_error: Exception | None = None
+        error_stage = "executor"
         try:
-            results = await executor.execute(context)
-            return results
-        except Exception as exc:
-            escaped_error = exc
-            raise
+            try:
+                executor = self._get_executor(context)
+            except Exception as exc:
+                escaped_error = exc
+                error_stage = "planner"
+                raise
+
+            try:
+                results = await executor.execute(context)
+                return results
+            except Exception as exc:
+                escaped_error = exc
+                error_stage = "executor"
+                raise
         finally:
             for result in results:
                 self._emit_runtime_event(
@@ -134,7 +143,7 @@ class QueryEngine:
                     data={
                         "error_type": type(escaped_error).__name__,
                         "error_message": str(escaped_error),
-                        "error_stage": "executor",
+                        "error_stage": error_stage,
                     },
                 )
 

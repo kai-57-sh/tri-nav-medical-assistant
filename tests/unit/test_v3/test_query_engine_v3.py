@@ -49,6 +49,17 @@ class StubCapability:
         return CapabilityResult(name=self.name, success=False, payload={}, errors=["fallback"])
 
 
+class ExplodingPlanner:
+    def plan(
+        self,
+        context: ExecutionContext,
+        capabilities_by_name: dict[str, StubCapability],
+    ) -> list[StubCapability]:
+        _ = context
+        _ = capabilities_by_name
+        raise RuntimeError("planner boom")
+
+
 @pytest.mark.asyncio
 async def test_query_engine_uses_planner_for_default_execution_path() -> None:
     calls: list[str] = []
@@ -92,3 +103,28 @@ async def test_query_engine_emits_runtime_stopped_when_budget_is_already_exceede
         "runtime_finished",
     ]
     assert events[1]["data"]["reason"] == StopReason.TIME_BUDGET_EXCEEDED.value
+    assert events[2]["data"]["success"] is False
+    assert events[2]["data"]["capabilities_executed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_query_engine_emits_failure_lifecycle_when_planner_raises() -> None:
+    capability = StubCapability(name="triage", calls=[])
+    planner = ExplodingPlanner()
+    ctx = ExecutionContext(request_id="req-v3-3", session_id="sess-v3-3", text="fever")
+    engine = QueryEngine([capability], planner=planner)
+
+    with pytest.raises(RuntimeError, match="planner boom"):
+        await engine.run(ctx)
+
+    events = engine.event_bus.dump()
+    assert [event["event_type"] for event in events] == [
+        "runtime_started",
+        "runtime_failed",
+        "runtime_finished",
+    ]
+    assert events[1]["data"]["error_type"] == "RuntimeError"
+    assert events[1]["data"]["error_message"] == "planner boom"
+    assert events[1]["data"]["error_stage"] == "planner"
+    assert events[2]["data"]["success"] is False
+    assert events[2]["data"]["capabilities_executed"] == 0
