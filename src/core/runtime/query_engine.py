@@ -1,6 +1,6 @@
 """Runtime query engine orchestration for TriNav v2."""
 
-from src.core.capability.executor import SequentialExecutor
+from src.core.capability.executor import ExecutorProtocol, SequentialExecutor
 from src.core.capability.protocol import Capability
 from src.core.runtime.event_bus import EventBus
 from src.core.runtime.execution_context import ExecutionContext
@@ -15,11 +15,11 @@ class QueryEngine:
         capabilities: list[Capability],
         *,
         event_bus: EventBus | None = None,
-        executor: SequentialExecutor | None = None,
+        executor: ExecutorProtocol | None = None,
     ) -> None:
         self._capabilities = list(capabilities)
         self.event_bus = event_bus or EventBus()
-        self._executor = executor or SequentialExecutor(self._capabilities)
+        self._executor: ExecutorProtocol = executor or SequentialExecutor(self._capabilities)
 
     async def run(self, context: ExecutionContext) -> list[CapabilityResult]:
         """Run the configured capabilities and emit lifecycle events."""

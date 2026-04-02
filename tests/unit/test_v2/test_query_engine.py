@@ -2,6 +2,7 @@
 
 import pytest
 
+from src.core.capability.executor import ExecutorProtocol
 from src.core.capability.protocol import Capability
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.query_engine import QueryEngine
@@ -166,7 +167,7 @@ async def test_query_engine_handles_malformed_enabled_via_fallback() -> None:
     ]
 
 
-class ExplodingExecutor:
+class ExplodingExecutor(ExecutorProtocol):
     async def execute(self, context: ExecutionContext) -> list[CapabilityResult]:
         _ = context
         raise RuntimeError("executor boom")
@@ -175,7 +176,7 @@ class ExplodingExecutor:
 @pytest.mark.asyncio
 async def test_query_engine_emits_runtime_failed_and_runtime_finished_when_executor_raises() -> None:
     ctx = ExecutionContext(request_id="req-4", session_id="sess-4", text="头痛")
-    engine = QueryEngine(capabilities=[], executor=ExplodingExecutor())  # type: ignore[arg-type]
+    engine = QueryEngine(capabilities=[], executor=ExplodingExecutor())
 
     with pytest.raises(RuntimeError, match="executor boom"):
         await engine.run(ctx)

@@ -1,8 +1,17 @@
 """Capability execution helpers for TriNav v2 runtime."""
 
+from typing import Protocol
+
 from src.core.capability.protocol import Capability
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult
+
+
+class ExecutorProtocol(Protocol):
+    """Executor contract used by the runtime query engine."""
+
+    async def execute(self, context: ExecutionContext) -> list[CapabilityResult]:
+        """Execute runtime capabilities for a single request context."""
 
 
 class SequentialExecutor:
