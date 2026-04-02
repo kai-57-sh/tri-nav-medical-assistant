@@ -68,7 +68,7 @@ class ToolRegistry:
             return await asyncio.wait_for(spec.handler(payload), timeout=spec.timeout_s)
         except asyncio.CancelledError:
             raise
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise ToolTimeoutError(name, spec.timeout_s) from exc
         except Exception as exc:
             raise ToolInvocationError(name, str(exc)) from exc

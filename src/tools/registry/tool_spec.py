@@ -1,8 +1,9 @@
 """Tool specification model for TriNav v2 runtime."""
 
 import inspect
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 
