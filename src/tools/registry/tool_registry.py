@@ -3,7 +3,7 @@
 import asyncio
 from typing import Any
 
-from src.tools.registry.tool_spec import ToolSpec
+from src.tools.registry.tool_spec import ToolInvokeEnvelope, ToolSpec
 
 
 class ToolRegistryError(Exception):
@@ -57,7 +57,7 @@ class ToolRegistry:
 
         return self._tools.get(name)
 
-    async def invoke(self, name: str, payload: dict[str, Any]) -> Any:
+    async def invoke(self, name: str, payload: dict[str, Any]) -> ToolInvokeEnvelope:
         """Invoke a tool by name with timeout protection and normalized errors."""
 
         spec = self.get(name)
@@ -65,7 +65,8 @@ class ToolRegistry:
             raise ToolNotFoundError(name)
 
         try:
-            return await asyncio.wait_for(spec.handler(payload), timeout=spec.timeout_s)
+            result = await asyncio.wait_for(spec.handler(payload), timeout=spec.timeout_s)
+            return {"tool": name, "ok": True, "result": result}
         except asyncio.CancelledError:
             raise
         except TimeoutError as exc:

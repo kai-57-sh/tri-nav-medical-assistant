@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]]
+ToolInvokeEnvelope = dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
