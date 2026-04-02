@@ -34,8 +34,8 @@ pytest -q tests/unit/test_server_v2.py tests/unit/test_server_v2_stream.py tests
 
 验收标准：
 
-- [ ] 所有测试通过。
-- [ ] 无新增 flaky 测试。
+- [x] 所有测试通过。
+- [x] 无新增 flaky 测试。
 
 ## 3. 代码质量门禁
 
@@ -48,8 +48,14 @@ mypy src
 
 验收标准：
 
-- [ ] `ruff` 无错误。
-- [ ] `mypy` 无错误。
+- [x] `ruff` 无错误。
+- [x] `mypy` 无错误。
+
+## 3.1 当前执行证据（2026-04-03）
+
+- [x] `mypy src` -> `Success: no issues found in 116 source files`
+- [x] `QWEN_API_KEY=test-key pytest -q tests/unit/test_services/test_llm_service.py tests/unit/test_nodes/test_session_loader.py tests/unit/test_nodes/test_red_flag_detector.py tests/unit/test_services/test_redis_service.py tests/unit/test_models/test_symptom_schema.py tests/unit/test_models/test_triage_assessment.py tests/unit/test_models/test_red_flag_rule.py tests/unit/test_models/test_navigation_result.py tests/unit/test_config/test_settings_v2.py tests/unit/test_v3/test_capabilities_v3.py tests/unit/test_v3/test_real_capabilities.py tests/unit/test_v3/test_redis_event_store.py tests/unit/test_platform/test_runtime_kernel.py tests/unit/test_server_v3.py tests/unit/test_server_v3_stream.py tests/unit/test_server_v3_runtime_admin.py tests/integration/test_shadow_compare.py tests/integration/test_shadow_compare_v3.py` -> `228 passed`
+- [x] `uvx ruff check src tests` -> `All checks passed`（存在 pyproject 顶层 lint 配置迁移 warning，不影响结果）
 
 ## 4. 灰度放量建议
 
