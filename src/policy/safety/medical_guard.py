@@ -12,7 +12,7 @@ _MEDICAL_GUARD_REPLACEMENTS: dict[str, str] = {
     "肯定没事": "建议尽快就医",
 }
 
-_NEGATED_SEEK_CARE_PATTERN = re.compile(r"(不建议|无需|不必|不需要|没必要)\s*尽快就医")
+_NEGATED_SEEK_CARE_PATTERN = re.compile(r"(不建议|无需|不必|不用|不宜|不需要|没必要)\s*尽快就医")
 
 
 def _normalize_trailing_punctuation(text: str) -> str:
