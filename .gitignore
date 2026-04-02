@@ -82,6 +82,7 @@ dmypy.json
 # Claude Code / Codex
 .claude/
 .codex/
+.worktrees/
 
 # Serena / Specify / Specs (local only)
 .serena/
