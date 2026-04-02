@@ -1,7 +1,21 @@
 """Unit tests for TriNav v2 permission engine."""
 
+import pytest
+
 from src.policy.permissions.engine import PermissionEngine
 from src.policy.permissions.rules import PermissionAction, PermissionRule
+
+
+def test_permission_rule_normalizes_string_action_to_enum() -> None:
+    rule = PermissionRule(target="tool.search", action="deny")
+
+    assert isinstance(rule.action, PermissionAction)
+    assert rule.action == PermissionAction.DENY
+
+
+def test_permission_rule_rejects_invalid_string_action() -> None:
+    with pytest.raises(ValueError):
+        PermissionRule(target="tool.search", action="block")
 
 
 def test_decide_prefers_request_layer_over_all_others() -> None:
