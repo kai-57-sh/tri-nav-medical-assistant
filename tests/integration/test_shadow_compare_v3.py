@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import src.interfaces.api.shadow_compare_v3 as shadow_compare_v3_api
+from src.interfaces.api.shadow_compare_v3 import compare_v1_v3
 
 
 @pytest.fixture(autouse=True)
@@ -62,6 +63,70 @@ def test_shadow_compare_v3_enabled_returns_contract(monkeypatch: pytest.MonkeyPa
     assert body["same_triage"] is False
     assert body["v1"]["status"] == "final"
     assert body["v3"]["status"] == "need_more_info"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_compare_v1_v3_marks_matches_when_outputs_align() -> None:
+    """compare_v1_v3 marks both comparisons true when normalized fields match."""
+
+    async def v1_runner(_: dict[str, object]) -> dict[str, object]:
+        return {"status": "final", "triage_level": "ROUTINE", "extra": "ignored"}
+
+    async def v3_runner(_: dict[str, object]) -> dict[str, object]:
+        return {"status": "final", "triage_level": "ROUTINE"}
+
+    result = await compare_v1_v3({"text": "same"}, v1_runner=v1_runner, v3_runner=v3_runner)
+
+    assert result["same_status"] is True
+    assert result["same_triage"] is True
+    assert result["v1"]["status"] == "final"
+    assert result["v1"]["triage_level"] == "ROUTINE"
+    assert result["v1"]["failed"] is False
+    assert result["v3"]["status"] == "final"
+    assert result["v3"]["triage_level"] == "ROUTINE"
+    assert result["v3"]["failed"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_compare_v1_v3_one_runner_raises_forces_non_match() -> None:
+    """A runner failure should be surfaced and force compare mismatch."""
+
+    async def v1_runner(_: dict[str, object]) -> dict[str, object]:
+        raise RuntimeError("v1 boom")
+
+    async def v3_runner(_: dict[str, object]) -> dict[str, object]:
+        return {"status": "final", "triage_level": "ROUTINE"}
+
+    result = await compare_v1_v3({"text": "x"}, v1_runner=v1_runner, v3_runner=v3_runner)
+
+    assert result["same_status"] is False
+    assert result["same_triage"] is False
+    assert result["v1"]["failed"] is True
+    assert result["v1"]["error_type"] == "RuntimeError"
+    assert result["v1"]["error_message"] == "v1 boom"
+    assert result["v3"]["failed"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_compare_v1_v3_invalid_payload_forces_non_match() -> None:
+    """Invalid runner payload should be marked and force compare mismatch."""
+
+    async def v1_runner(_: dict[str, object]) -> dict[str, object]:
+        return {"status": "final", "triage_level": "ROUTINE"}
+
+    async def v3_runner(_: dict[str, object]) -> object:
+        return {"triage_level": "ROUTINE"}  # missing status -> invalid payload
+
+    result = await compare_v1_v3({"text": "x"}, v1_runner=v1_runner, v3_runner=v3_runner)
+
+    assert result["same_status"] is False
+    assert result["same_triage"] is False
+    assert result["v1"]["invalid_payload"] is False
+    assert result["v3"]["invalid_payload"] is True
+    assert result["v3"]["error_type"] == "InvalidPayload"
 
 
 @pytest.mark.integration

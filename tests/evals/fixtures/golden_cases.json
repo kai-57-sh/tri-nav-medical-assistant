@@ -1,52 +1,52 @@
 [
   {
     "id": "case-001",
-    "text": "发热三天伴咳嗽",
-    "expected_status": "need_more_info"
+    "input": "发热三天伴咳嗽",
+    "expect_triage": "ROUTINE"
   },
   {
     "id": "case-002",
-    "text": "胸口疼痛持续一小时",
-    "expected_status": "final"
+    "input": "胸口疼痛持续一小时",
+    "expect_triage": "EMERGENCY"
   },
   {
     "id": "case-003",
-    "text": "轻微头痛无其他症状",
-    "expected_status": "final"
+    "input": "轻微头痛无其他症状",
+    "expect_triage": "SELF_CARE"
   },
   {
     "id": "case-004",
-    "text": "右下腹疼痛加重",
-    "expected_status": "need_more_info"
+    "input": "右下腹疼痛加重",
+    "expect_triage": "URGENT"
   },
   {
     "id": "case-005",
-    "text": "运动后踝关节肿胀",
-    "expected_status": "final"
+    "input": "运动后踝关节肿胀",
+    "expect_triage": "ROUTINE"
   },
   {
     "id": "case-006",
-    "text": "持续呕吐伴脱水",
-    "expected_status": "need_more_info"
+    "input": "持续呕吐伴脱水",
+    "expect_triage": "URGENT"
   },
   {
     "id": "case-007",
-    "text": "皮疹瘙痒两天",
-    "expected_status": "final"
+    "input": "皮疹瘙痒两天",
+    "expect_triage": "SELF_CARE"
   },
   {
     "id": "case-008",
-    "text": "突然视物模糊",
-    "expected_status": "need_more_info"
+    "input": "突然视物模糊",
+    "expect_triage": "EMERGENCY"
   },
   {
     "id": "case-009",
-    "text": "高烧39度伴寒战",
-    "expected_status": "need_more_info"
+    "input": "高烧39度伴寒战",
+    "expect_triage": "URGENT"
   },
   {
     "id": "case-010",
-    "text": "轻微咽痛一天",
-    "expected_status": "final"
+    "input": "轻微咽痛一天",
+    "expect_triage": "ROUTINE"
   }
 ]
