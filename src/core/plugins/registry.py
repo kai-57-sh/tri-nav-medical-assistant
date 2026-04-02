@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from typing import Any, Protocol
 
 from src.core.plugins.protocol import RuntimePlugin
 from src.core.runtime.execution_context import ExecutionContext
@@ -13,8 +13,9 @@ from src.core.runtime.types import CapabilityResult
 class RuntimePluginRegistry:
     """Registers runtime plugins and applies before/after hooks in order."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, tool_gateway: "ToolGatewayProtocol | None" = None) -> None:
         self._plugins: dict[str, RuntimePlugin] = {}
+        self._tool_gateway = tool_gateway
 
     def register(self, plugin: RuntimePlugin) -> None:
         """Register one runtime plugin."""
@@ -38,6 +39,34 @@ class RuntimePluginRegistry:
         """List registered plugin names in registration order."""
 
         return list(self._plugins.keys())
+
+    @property
+    def tool_gateway(self) -> "ToolGatewayProtocol | None":
+        """Return configured tool gateway, if attached."""
+
+        return self._tool_gateway
+
+    def attach_tool_gateway(self, gateway: "ToolGatewayProtocol") -> None:
+        """Attach a tool gateway used by invoke_tool helper."""
+
+        self._tool_gateway = gateway
+
+    async def invoke_tool(
+        self,
+        tool_name: str,
+        payload: dict[str, Any],
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> Any:
+        """Invoke tool via attached gateway when policy layer is enabled."""
+
+        if self._tool_gateway is None:
+            raise RuntimeError("Tool gateway is not configured.")
+        return await self._tool_gateway.invoke(
+            tool_name=tool_name,
+            payload=payload,
+            context=context or {},
+        )
 
     async def apply_before_execute(self, context: ExecutionContext) -> ExecutionContext:
         """Apply before hooks in order; isolate plugin failures per plugin."""
@@ -102,3 +131,15 @@ class RuntimePluginRegistry:
         if not isinstance(value, list):
             return False
         return all(isinstance(item, CapabilityResult) for item in value)
+
+
+class ToolGatewayProtocol(Protocol):
+    """Minimal gateway contract accepted by RuntimePluginRegistry."""
+
+    async def invoke(
+        self,
+        tool_name: str,
+        payload: dict[str, Any],
+        context: dict[str, Any] | None = None,
+    ) -> Any:
+        """Authorize and invoke a tool call."""
