@@ -58,6 +58,19 @@
 }
 ```
 
+### `GET /assistant/v3/runtime/plugins`
+
+返回当前注册的 runtime plugin 名称列表。
+
+响应示例：
+
+```json
+{
+  "plugins": ["trace_metadata", "medical_footer"],
+  "count": 2
+}
+```
+
 ### `POST /assistant/v3/runtime/sessions/{session_id}/resume`
 
 在固定 `session_id` 下继续问诊。

@@ -12,6 +12,8 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.coordinator.runtime_coordinator import RuntimeCoordinator
+from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.state.event_store import InMemoryEventStore
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
 
@@ -19,6 +21,7 @@ router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
 _ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
 _RUNTIME_EVENT_STORE = InMemoryEventStore()
 _RUNTIME_SNAPSHOT_STORE = InMemorySnapshotStore()
+_RUNTIME_PLUGIN_REGISTRY = RuntimePluginRegistry()
 
 
 class AssistantV2InvokePayload(BaseModel):
@@ -87,6 +90,12 @@ def get_runtime_session_state(session_id: str) -> dict[str, Any]:
         "snapshot": snapshot,
         "runtime_events": runtime_events,
     }
+
+
+def list_runtime_plugins() -> list[str]:
+    """Expose registered runtime plugin names for diagnostics."""
+
+    return _RUNTIME_PLUGIN_REGISTRY.list_names()
 
 
 def _error_response(
@@ -248,7 +257,8 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
             event_bus=event_bus,
             event_store=_RUNTIME_EVENT_STORE,
         )
-        results = await engine.run(context)
+        coordinator = RuntimeCoordinator(engine=engine, plugins=_RUNTIME_PLUGIN_REGISTRY)
+        results = await coordinator.run(context)
     except Exception as exc:
         runtime_events = [] if event_bus is None else event_bus.dump()
         return _error_response(

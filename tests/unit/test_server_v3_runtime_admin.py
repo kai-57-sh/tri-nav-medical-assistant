@@ -85,6 +85,27 @@ def test_runtime_replay_v3_returns_404_when_session_missing(client: TestClient) 
     assert response.json() == {"detail": "session_not_found"}
 
 
+def test_runtime_plugins_v3_lists_registered_plugins(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plugin list endpoint should return coordinator plugin names."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.list_runtime_plugins",
+        lambda: ["trace_metadata", "medical_footer"],
+    )
+
+    response = client.get("/assistant/v3/runtime/plugins")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "plugins": ["trace_metadata", "medical_footer"],
+        "count": 2,
+    }
+
+
 def test_runtime_replay_v3_returns_snapshot_after_invoke(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

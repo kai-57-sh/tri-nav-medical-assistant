@@ -10,7 +10,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config.settings import get_settings
-from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload, get_runtime_session_state
+from src.interfaces.api.assistant_v2 import (
+    AssistantV2InvokePayload,
+    get_runtime_session_state,
+    list_runtime_plugins,
+)
 from src.interfaces.api.assistant_v3 import invoke_assistant_v3
 
 router = APIRouter(prefix="/assistant/v3/runtime", tags=["assistant-v3-runtime"])
@@ -70,6 +74,17 @@ async def replay_session_v3(session_id: str) -> dict[str, Any]:
         "snapshot": snapshot,
         "runtime_events": runtime_events,
         "can_resume": snapshot is not None,
+    }
+
+
+@router.get("/plugins")
+async def list_plugins_v3() -> dict[str, Any]:
+    """List registered runtime plugins used by v2/v3 coordinator."""
+
+    plugins = list_runtime_plugins()
+    return {
+        "plugins": plugins,
+        "count": len(plugins),
     }
 
 
