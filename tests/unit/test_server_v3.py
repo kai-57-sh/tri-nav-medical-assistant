@@ -93,6 +93,7 @@ def test_assistant_v3_invoke_success_contract_shape(
         "session_id",
         "trace_id",
         "response",
+        "safety",
         "runtime_events",
         "provenance",
         "trace",
@@ -101,6 +102,8 @@ def test_assistant_v3_invoke_success_contract_shape(
     assert data["session_id"] == "sess-test-v3"
     assert data["trace_id"] == "trace-test-v3"
     assert data["response"] == "mocked response"
+    assert data["safety"]["risk_level"] == "low"
+    assert data["safety"]["matched_rules"] == []
     assert isinstance(data["runtime_events"], list)
     assert isinstance(data["provenance"], dict)
     assert isinstance(data["trace"], dict)
@@ -238,6 +241,8 @@ def test_assistant_v3_task_coordinator_applies_medical_guard(
     assert "别去医院" not in data["response"]
     assert "疑似" in data["response"]
     assert "建议尽快就医" in data["response"]
+    assert data["safety"]["risk_level"] == "high"
+    assert "rewrite.confirmed_diagnosis" in data["safety"]["matched_rules"]
 
 
 def test_assistant_v3_task_coordinator_propagates_triage_metadata_to_followup_tasks(

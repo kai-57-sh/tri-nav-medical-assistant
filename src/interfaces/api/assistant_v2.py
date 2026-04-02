@@ -28,7 +28,8 @@ from src.platform.runtime.kernel import (
     RuntimeKernelInvokeError,
     build_runtime_kernel as _build_runtime_kernel,
 )
-from src.policy.safety.medical_guard import enforce_output_guard
+from src.platform.policy.medical_safety_engine import SafetyResult
+from src.policy.safety.medical_guard import enforce_output_guard_result
 
 router = APIRouter(prefix="/assistant/v2", tags=["assistant-v2"])
 _ALLOWED_STATUSES = frozenset({"final", "need_more_info", "error"})
@@ -442,16 +443,17 @@ async def _invoke_v3_task_coordinator(
     response_status = _normalize_status(runtime_status)
     if not primary.success:
         response_status = "error"
-    response_text = output_payload.get("response")
-    normalized_response = response_text if isinstance(response_text, str) else ""
-    if response_status in {"final", "need_more_info"} and normalized_response:
-        normalized_response = enforce_output_guard(normalized_response)
+    safety_result = _enforce_response_safety(
+        status=response_status,
+        response_text=output_payload.get("response"),
+    )
 
     body: dict[str, Any] = {
         "status": response_status,
         "session_id": session_id,
         "trace_id": trace_id,
-        "response": normalized_response,
+        "response": safety_result.text,
+        "safety": _serialize_safety_result(safety_result),
         "runtime_events": runtime_events,
         "provenance": primary.provenance,
         "trace": {
@@ -519,6 +521,7 @@ async def _error_response(
         "session_id": session_id,
         "trace_id": trace_id,
         "response": "",
+        "safety": _serialize_safety_result(_default_safety_result()),
         "runtime_events": runtime_events or [],
         "provenance": provenance or {"source": "assistant_v2"},
         "trace": trace or {"request_id": request_id, "error_message": message},
@@ -546,6 +549,24 @@ def _normalize_status(runtime_status: Any) -> str:
     return "error"
 
 
+def _default_safety_result(text: str = "") -> SafetyResult:
+    return SafetyResult(text=text, risk_level="low", matched_rules=[])
+
+
+def _serialize_safety_result(result: SafetyResult) -> dict[str, Any]:
+    return {
+        "risk_level": result.risk_level,
+        "matched_rules": list(result.matched_rules),
+    }
+
+
+def _enforce_response_safety(*, status: str, response_text: Any) -> SafetyResult:
+    normalized_text = response_text if isinstance(response_text, str) else ""
+    if status in {"final", "need_more_info"}:
+        return enforce_output_guard_result(normalized_text)
+    return _default_safety_result(normalized_text)
+
+
 def _sse_event(event: str, data: Any) -> str:
     """Serialize one SSE event frame."""
 
@@ -567,6 +588,7 @@ def _stream_error_payload(
         "session_id": session_id,
         "trace_id": trace_id,
         "response": "",
+        "safety": _serialize_safety_result(_default_safety_result()),
         "runtime_events": [],
         "provenance": {"source": "assistant_v2"},
         "trace": trace or {"request_id": request_id, "error_message": message},
@@ -719,7 +741,10 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     response_status = _normalize_status(runtime_status)
     if not primary.success:
         response_status = "error"
-    response_text = output_payload.get("response")
+    safety_result = _enforce_response_safety(
+        status=response_status,
+        response_text=output_payload.get("response"),
+    )
     resolved_session_id = output_payload.get("session_id")
     error_message = output_payload.get("error_message")
 
@@ -727,7 +752,8 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
         "status": response_status,
         "session_id": resolved_session_id if isinstance(resolved_session_id, str) else session_id,
         "trace_id": trace_id,
-        "response": response_text if isinstance(response_text, str) else "",
+        "response": safety_result.text,
+        "safety": _serialize_safety_result(safety_result),
         "runtime_events": runtime_events,
         "provenance": primary.provenance,
         "trace": {

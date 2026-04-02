@@ -89,6 +89,7 @@ def test_assistant_v2_invoke_success_contract_shape(
         "session_id",
         "trace_id",
         "response",
+        "safety",
         "runtime_events",
         "provenance",
         "trace",
@@ -97,6 +98,8 @@ def test_assistant_v2_invoke_success_contract_shape(
     assert data["session_id"] == "sess-test-v2"
     assert data["trace_id"] == "trace-test-v2"
     assert data["response"] == "mocked response"
+    assert data["safety"]["risk_level"] == "low"
+    assert data["safety"]["matched_rules"] == []
     assert isinstance(data["runtime_events"], list)
     assert isinstance(data["provenance"], dict)
     assert isinstance(data["trace"], dict)

@@ -118,6 +118,7 @@ def test_assistant_v3_stream_returns_ordered_sse_frames(
         "session_id",
         "trace_id",
         "response",
+        "safety",
         "runtime_events",
         "provenance",
         "trace",
@@ -126,6 +127,8 @@ def test_assistant_v3_stream_returns_ordered_sse_frames(
     assert final_payload["session_id"] == "sess-test-v3"
     assert final_payload["trace_id"] == "trace-test-v3"
     assert final_payload["response"] == "mocked response"
+    assert final_payload["safety"]["risk_level"] == "low"
+    assert final_payload["safety"]["matched_rules"] == []
 
 
 def test_assistant_v3_stream_error_final_still_uses_http_200(
