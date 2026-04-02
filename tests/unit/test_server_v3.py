@@ -82,7 +82,7 @@ def test_assistant_v3_invoke_success_contract_shape(
         headers={"Content-Type": "application/json"},
     )
 
-    assert response.status_code in (200, 503)
+    assert response.status_code == 200
     data = response.json()
     assert set(data.keys()) >= {
         "status",
@@ -93,17 +93,13 @@ def test_assistant_v3_invoke_success_contract_shape(
         "provenance",
         "trace",
     }
-    assert data["status"] in {"final", "need_more_info", "error"}
+    assert data["status"] == "final"
     assert data["session_id"] == "sess-test-v3"
     assert data["trace_id"] == "trace-test-v3"
     assert data["response"] == "mocked response"
     assert isinstance(data["runtime_events"], list)
     assert isinstance(data["provenance"], dict)
     assert isinstance(data["trace"], dict)
-    if data["status"] in {"final", "need_more_info"}:
-        assert response.status_code == 200
-    else:
-        assert response.status_code == 503
 
 
 def test_assistant_v3_invoke_error_status_maps_to_503(

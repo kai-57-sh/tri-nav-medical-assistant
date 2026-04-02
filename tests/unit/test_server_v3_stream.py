@@ -119,9 +119,10 @@ def test_assistant_v3_stream_returns_ordered_sse_frames(
         "provenance",
         "trace",
     }
-    assert final_payload["status"] in {"final", "need_more_info", "error"}
+    assert final_payload["status"] == "final"
     assert final_payload["session_id"] == "sess-test-v3"
     assert final_payload["trace_id"] == "trace-test-v3"
+    assert final_payload["response"] == "mocked response"
 
 
 def test_assistant_v3_stream_error_final_still_uses_http_200(
