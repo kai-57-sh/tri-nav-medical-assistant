@@ -24,4 +24,12 @@ class StaticPlanner:
         capabilities_by_name: Mapping[str, Capability],
     ) -> list[Capability]:
         _ = context
-        return [capabilities_by_name[name] for name in self._order if name in capabilities_by_name]
+
+        planned: list[Capability] = []
+        seen: set[str] = set()
+        for name in self._order:
+            if name in seen or name not in capabilities_by_name:
+                continue
+            seen.add(name)
+            planned.append(capabilities_by_name[name])
+        return planned
