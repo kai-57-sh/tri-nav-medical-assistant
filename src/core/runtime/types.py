@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from pydantic import BaseModel, Field, JsonValue, StringConstraints
+from src.core.runtime.stop_reason import StopReason
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 JSONValue = JsonValue
@@ -25,3 +26,9 @@ class RuntimeEvent(BaseModel):
     request_id: NonEmptyStr
     session_id: NonEmptyStr
     data: dict[str, JSONValue] = Field(default_factory=dict)
+
+
+class RuntimeStop(BaseModel):
+    """Structured reason for runtime stop events."""
+
+    reason: StopReason

@@ -2,11 +2,13 @@
 
 from typing import Any, Protocol
 
+from src.core.capability.planner import PlannerProtocol
 from src.core.capability.executor import ExecutorProtocol, SequentialExecutor
 from src.core.capability.protocol import Capability
+from src.core.runtime.budget_manager import BudgetManager
 from src.core.runtime.event_bus import EventBus
 from src.core.runtime.execution_context import ExecutionContext
-from src.core.runtime.types import CapabilityResult
+from src.core.runtime.types import CapabilityResult, RuntimeStop
 
 
 class EventStoreProtocol(Protocol):
@@ -26,11 +28,27 @@ class QueryEngine:
         event_bus: EventBus | None = None,
         event_store: EventStoreProtocol | None = None,
         executor: ExecutorProtocol | None = None,
+        planner: PlannerProtocol | None = None,
+        budget: BudgetManager | None = None,
     ) -> None:
         self._capabilities = list(capabilities)
         self.event_bus = event_bus or EventBus()
         self._event_store = event_store
-        self._executor: ExecutorProtocol = executor or SequentialExecutor(self._capabilities)
+        self._executor_override = executor
+        self._planner = planner
+        self._budget = budget
+
+    def _get_executor(self, context: ExecutionContext) -> ExecutorProtocol:
+        """Return an executor for this run, using planner on the default path."""
+
+        if self._executor_override is not None:
+            return self._executor_override
+
+        planned_capabilities = self._capabilities
+        if self._planner is not None:
+            capabilities_by_name = {capability.name: capability for capability in self._capabilities}
+            planned_capabilities = self._planner.plan(context, capabilities_by_name)
+        return SequentialExecutor(planned_capabilities)
 
     def _emit_runtime_event(
         self,
@@ -68,10 +86,31 @@ class QueryEngine:
             trace_id=trace_id,
         )
 
+        if self._budget is not None:
+            stop_reason = self._budget.check_elapsed()
+            if stop_reason is not None:
+                stop = RuntimeStop(reason=stop_reason)
+                self._emit_runtime_event(
+                    event_type="runtime_stopped",
+                    request_id=context.request_id,
+                    session_id=context.session_id,
+                    trace_id=trace_id,
+                    data=stop.model_dump(mode="json"),
+                )
+                self._emit_runtime_event(
+                    event_type="runtime_finished",
+                    request_id=context.request_id,
+                    session_id=context.session_id,
+                    trace_id=trace_id,
+                    data={"capabilities_executed": 0, "success": False},
+                )
+                return []
+
+        executor = self._get_executor(context)
         results: list[CapabilityResult] = []
         escaped_error: Exception | None = None
         try:
-            results = await self._executor.execute(context)
+            results = await executor.execute(context)
             return results
         except Exception as exc:
             escaped_error = exc
