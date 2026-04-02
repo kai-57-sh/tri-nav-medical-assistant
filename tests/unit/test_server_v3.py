@@ -175,5 +175,9 @@ def test_assistant_v3_invoke_uses_task_coordinator_when_enabled(
     assert data["session_id"] == "sess-v3-task-1"
     assert data["trace_id"] == "trace-v3-task-1"
     assert data["triage_level"] == "ROUTINE"
+    assert data["recommended_departments"] == ["全科", "内科"]
+    assert len(data["possible_causes"]) >= 1
+    assert isinstance(data["red_flags"], list)
+    assert data["disclaimer"] == "本建议仅供参考，不替代专业医疗诊断。"
     assert data["trace"]["path"] == "v3_task_coordinator"
     assert "已记录症状" in data["response"]

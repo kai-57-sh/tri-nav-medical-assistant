@@ -157,6 +157,32 @@ def _extract_error_message(value: Any) -> str:
     return value if isinstance(value, str) else "task_failed"
 
 
+def _recommended_departments_from_triage(triage_level: str | None) -> list[str]:
+    if triage_level == "EMERGENCY":
+        return ["急诊科"]
+    if triage_level == "URGENT":
+        return ["急诊科", "内科"]
+    if triage_level == "ROUTINE":
+        return ["全科", "内科"]
+    return ["全科"]
+
+
+def _possible_causes_from_text(text: str) -> list[str]:
+    normalized = text.strip()
+    if not normalized:
+        return ["症状相关不适（疑似）"]
+    excerpt = normalized[:20]
+    return [f"{excerpt}相关不适（疑似）"]
+
+
+def _red_flags_from_triage(triage_level: str | None) -> list[str]:
+    if triage_level == "EMERGENCY":
+        return ["疑似紧急情况，请立即前往急诊或呼叫急救。"]
+    if triage_level == "URGENT":
+        return ["症状存在加重风险，建议尽快线下就医。"]
+    return ["如出现呼吸困难、胸痛、意识改变等情况，请立即急诊。"]
+
+
 async def _run_v3_capability_task(
     capability: Any,
     context: ExecutionContext,
@@ -367,6 +393,10 @@ async def _invoke_v3_task_coordinator(
     }
     if triage_level is not None:
         body["triage_level"] = triage_level
+    body["recommended_departments"] = _recommended_departments_from_triage(triage_level)
+    body["possible_causes"] = _possible_causes_from_text(payload.text)
+    body["red_flags"] = _red_flags_from_triage(triage_level)
+    body["disclaimer"] = "本建议仅供参考，不替代专业医疗诊断。"
 
     if primary.success and response_status in {"final", "need_more_info"}:
         _persist_runtime_snapshot(

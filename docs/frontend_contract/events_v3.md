@@ -26,6 +26,14 @@ event: final
 data: {"status":"final","session_id":"sess-...","trace_id":"trace-...","response":"...","runtime_events":[],"provenance":{},"trace":{}}
 ```
 
+When `v3_task_coordinator_enabled=true` and request is routed via v3 runtime mode, final payload additionally includes:
+
+- `triage_level` (for example `ROUTINE`)
+- `recommended_departments` (string array)
+- `possible_causes` (string array, qualified wording)
+- `red_flags` (string array)
+- `disclaimer` (medical safety disclaimer)
+
 Error final payload uses:
 
 - `status: "error"`
