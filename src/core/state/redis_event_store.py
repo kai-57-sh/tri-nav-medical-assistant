@@ -7,6 +7,8 @@ from typing import Any
 
 from typing import TYPE_CHECKING
 
+from redis.exceptions import RedisError
+
 if TYPE_CHECKING:
     from src.services import RedisService
 
@@ -22,17 +24,17 @@ class RedisEventStore:
 
     async def append(self, session_id: str, event: dict[str, Any]) -> None:
         """Append one event into the cached session history."""
-        if await self._append_atomically(session_id=session_id, event=event):
-            return
-
-        await self._append_with_read_modify_write(session_id=session_id, event=event)
-
-    async def _append_atomically(self, session_id: str, event: dict[str, Any]) -> bool:
         redis_client = getattr(self._redis, "redis", None)
         is_healthy = bool(getattr(self._redis, "is_healthy", False))
         if not is_healthy or redis_client is None:
-            return False
+            return
 
+        if await self._append_atomically(redis_client=redis_client, session_id=session_id, event=event):
+            return
+
+        await self._append_without_pipeline(redis_client=redis_client, session_id=session_id, event=event)
+
+    async def _append_atomically(self, redis_client: Any, session_id: str, event: dict[str, Any]) -> bool:
         redis_key = f"cache:events:{session_id}"
         encoded_event = json.dumps(dict(event), ensure_ascii=False)
         try:
@@ -42,24 +44,18 @@ class RedisEventStore:
             pipeline.expire(redis_key, self._TTL_SECONDS)
             await pipeline.execute()
             return True
-        except Exception:
-            # Graceful degradation: fall back to non-atomic adapter API.
+        except (RedisError, RuntimeError, AttributeError, TypeError):
+            # Graceful degradation: attempt non-pipeline list operations.
             return False
 
-    async def _append_with_read_modify_write(self, session_id: str, event: dict[str, Any]) -> None:
-        cache_key = f"events:{session_id}"
-        cached = await self._redis.load_cached_result(cache_key)
-        history: list[dict[str, Any]] = []
-        if isinstance(cached, dict):
-            events = cached.get("events")
-            if isinstance(events, list):
-                history = [dict(item) for item in events if isinstance(item, dict)]
-        history.append(dict(event))
-        if len(history) > self._MAX_EVENTS_PER_SESSION:
-            history = history[-self._MAX_EVENTS_PER_SESSION :]
-
-        await self._redis.cache_external_result(
-            cache_key=cache_key,
-            result={"events": history},
-            ttl=self._TTL_SECONDS,
-        )
+    async def _append_without_pipeline(self, redis_client: Any, session_id: str, event: dict[str, Any]) -> bool:
+        redis_key = f"cache:events:{session_id}"
+        encoded_event = json.dumps(dict(event), ensure_ascii=False)
+        try:
+            await redis_client.rpush(redis_key, encoded_event)
+            await redis_client.ltrim(redis_key, -self._MAX_EVENTS_PER_SESSION, -1)
+            await redis_client.expire(redis_key, self._TTL_SECONDS)
+            return True
+        except (RedisError, RuntimeError, AttributeError, TypeError):
+            # Final graceful degradation: drop this event rather than risk corrupting key type.
+            return False

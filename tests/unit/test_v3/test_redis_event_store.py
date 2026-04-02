@@ -1,6 +1,5 @@
 import asyncio
 import json
-from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -9,8 +8,9 @@ from src.core.state.redis_event_store import RedisEventStore
 
 
 class _FakePipeline:
-    def __init__(self, redis: "_FakeRedisClient") -> None:
+    def __init__(self, redis: "_FakeRedisClient", *, fail_execute: bool = False) -> None:
         self._redis = redis
+        self._fail_execute = fail_execute
         self._ops: list[tuple[str, tuple[Any, ...]]] = []
 
     def rpush(self, key: str, value: str) -> "_FakePipeline":
@@ -26,6 +26,9 @@ class _FakePipeline:
         return self
 
     async def execute(self) -> list[bool]:
+        if self._fail_execute:
+            raise RuntimeError("pipeline execute failed")
+
         for op, args in self._ops:
             if op == "rpush":
                 key, value = args
@@ -44,49 +47,40 @@ class _FakeRedisClient:
     def __init__(self) -> None:
         self._lists: dict[str, list[str]] = {}
         self._ttl_by_key: dict[str, int] = {}
+        self.fail_pipeline_execute = False
 
     def pipeline(self) -> _FakePipeline:
-        return _FakePipeline(self)
+        return _FakePipeline(self, fail_execute=self.fail_pipeline_execute)
+
+    async def rpush(self, key: str, value: str) -> int:
+        self._lists.setdefault(key, []).append(value)
+        return len(self._lists[key])
+
+    async def ltrim(self, key: str, start: int, end: int) -> bool:
+        values = self._lists.get(key, [])
+        self._lists[key] = values[start : end + 1 if end != -1 else None]
+        return True
+
+    async def expire(self, key: str, ttl: int) -> bool:
+        self._ttl_by_key[key] = ttl
+        return True
 
 
 class _BaseFakeRedisService:
     def __init__(self) -> None:
         self.redis = _FakeRedisClient()
         self.is_healthy = True
-        self._cache: dict[str, dict[str, Any]] = {}
-
-    async def cache_external_result(
-        self, *, cache_key: str, result: dict[str, Any], ttl: int
-    ) -> bool:
-        await asyncio.sleep(0)
-        self._cache[f"cache:{cache_key}"] = deepcopy(result)
-        return True
-
-
-class _RaceyRedisService(_BaseFakeRedisService):
-    def __init__(self) -> None:
-        super().__init__()
-        self._load_count = 0
-        self._load_gate = asyncio.Event()
-
-    async def load_cached_result(self, cache_key: str) -> dict[str, Any] | None:
-        self._load_count += 1
-        if self._load_count >= 2:
-            self._load_gate.set()
-        await self._load_gate.wait()
-        cached = self._cache.get(f"cache:{cache_key}")
-        return deepcopy(cached) if cached is not None else None
+        self.load_cached_result = None
+        self.cache_external_result = None
 
 
 class _SimpleRedisService(_BaseFakeRedisService):
-    async def load_cached_result(self, cache_key: str) -> dict[str, Any] | None:
-        cached = self._cache.get(f"cache:{cache_key}")
-        return deepcopy(cached) if cached is not None else None
+    pass
 
 
 @pytest.mark.asyncio
 async def test_redis_event_store_append_is_atomic_under_concurrency() -> None:
-    fake = _RaceyRedisService()
+    fake = _SimpleRedisService()
     store = RedisEventStore(fake)
 
     await asyncio.gather(
@@ -118,18 +112,30 @@ async def test_redis_event_store_trims_event_history_to_default_cap() -> None:
 
 
 @pytest.mark.asyncio
+async def test_redis_event_store_preserves_list_history_when_pipeline_fails() -> None:
+    fake = _SimpleRedisService()
+    store = RedisEventStore(fake)
+
+    await store.append("sess-1", {"event_type": "runtime_started", "id": "a"})
+    fake.redis.fail_pipeline_execute = True
+    await store.append("sess-1", {"event_type": "capability_completed", "id": "b"})
+
+    encoded_events = fake.redis._lists.get("cache:events:sess-1", [])
+    persisted_events = [json.loads(item) for item in encoded_events]
+    assert len(persisted_events) == 2
+    assert [event["id"] for event in persisted_events] == ["a", "b"]
+
+
+@pytest.mark.asyncio
 async def test_redis_event_store_falls_back_gracefully_when_redis_unavailable(mocker) -> None:
     fake = mocker.AsyncMock()
     fake.redis = None
     fake.is_healthy = False
-    fake.load_cached_result.return_value = None
+    fake.load_cached_result.side_effect = AssertionError("should not read string cache fallback")
+    fake.cache_external_result.side_effect = AssertionError("should not write string cache fallback")
     store = RedisEventStore(fake)
 
     await store.append("sess-1", {"event_type": "runtime_started", "message": "启动"})
 
-    fake.load_cached_result.assert_awaited_once_with("events:sess-1")
-    fake.cache_external_result.assert_awaited_once_with(
-        cache_key="events:sess-1",
-        result={"events": [{"event_type": "runtime_started", "message": "启动"}]},
-        ttl=3600,
-    )
+    fake.load_cached_result.assert_not_called()
+    fake.cache_external_result.assert_not_called()
