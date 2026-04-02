@@ -55,5 +55,6 @@ markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "contract: Contract tests",
+    "eval: Eval gate tests",
     "slow: Slow running tests",
 ]
