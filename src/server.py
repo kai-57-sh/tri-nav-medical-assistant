@@ -88,10 +88,12 @@ add_routes(
 
 try:
     from .interfaces.api.assistant_v2 import router as assistant_v2_router
+    from .interfaces.api.shadow_compare import router as shadow_compare_router
 
     app.include_router(assistant_v2_router)
+    app.include_router(shadow_compare_router)
 except Exception as exc:  # pragma: no cover - defensive import guard
-    logger.exception("assistant_v2 router registration failed")
+    logger.exception("api router registration failed")
     raise
 
 
