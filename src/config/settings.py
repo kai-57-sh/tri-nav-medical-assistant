@@ -54,6 +54,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable TriNav v3 shadow comparison"
     )
+    v3_task_coordinator_enabled: bool = Field(
+        default=False,
+        description="Enable v3 capability task coordinator path",
+    )
     v3_builtin_plugins_enabled: bool = Field(
         default=False,
         description="Enable built-in runtime plugins in v3 parity path",

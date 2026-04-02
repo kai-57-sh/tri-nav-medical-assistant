@@ -14,8 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.config.settings import get_settings
 from src.core.coordinator.runtime_coordinator import RuntimeCoordinator
+from src.core.coordinator.task_coordinator import TaskCoordinator, TaskSpec
 from src.core.plugins.builtin import create_builtin_plugins
 from src.core.plugins.registry import RuntimePluginRegistry
+from src.core.runtime.execution_context import ExecutionContext
+from src.core.runtime.types import CapabilityResult
 from src.core.state.event_store import InMemoryEventStore
 from src.core.state.session_snapshot_store import InMemorySnapshotStore
 
@@ -129,6 +132,269 @@ def _build_runtime_plugin_registry() -> RuntimePluginRegistry:
     ):
         registry.register(plugin)
     return registry
+
+
+def _is_v3_task_runtime(payload: AssistantV2InvokePayload) -> bool:
+    """Return whether this request should use v3 task coordinator path."""
+
+    metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
+    runtime_mode = metadata.get("runtime_mode")
+    if runtime_mode != "v3":
+        return False
+    try:
+        settings = get_settings()
+    except Exception:
+        return False
+    return bool(getattr(settings, "v3_task_coordinator_enabled", False))
+
+
+def _record_runtime_events(session_id: str, events: list[dict[str, Any]]) -> None:
+    for event in events:
+        _RUNTIME_EVENT_STORE.append(session_id, event)
+
+
+def _extract_error_message(value: Any) -> str:
+    return value if isinstance(value, str) else "task_failed"
+
+
+async def _run_v3_capability_task(
+    capability: Any,
+    context: ExecutionContext,
+) -> dict[str, Any]:
+    """Run one v3 capability as a task payload."""
+
+    try:
+        plan = await capability.plan(context)
+        if isinstance(plan, dict):
+            enabled = plan.get("enabled", True)
+            if enabled is False:
+                return {
+                    "status": "skipped",
+                    "payload": {"status": "skipped"},
+                    "provenance": {"source": "v3_task_coordinator"},
+                    "errors": [],
+                }
+        result = await capability.run(context, plan if isinstance(plan, dict) else None)
+    except Exception as exc:
+        fallback = await capability.fallback(context, reason=f"task_failed: {exc}", error=exc)
+        if not fallback.success:
+            message = "; ".join(fallback.errors) if fallback.errors else str(exc)
+            raise RuntimeError(message) from exc
+        result = fallback
+
+    return {
+        "status": "ok",
+        "payload": result.payload if isinstance(result.payload, dict) else {},
+        "provenance": result.provenance if isinstance(result.provenance, dict) else {},
+        "errors": list(result.errors),
+    }
+
+
+async def _invoke_v3_task_coordinator(
+    payload: AssistantV2InvokePayload,
+    *,
+    request_id: str,
+    session_id: str,
+    trace_id: str,
+) -> JSONResponse:
+    """Run deterministic v3 capability task orchestration path."""
+
+    from src.capabilities.consultation.capability import ConsultationCapability
+    from src.capabilities.evidence.capability import EvidenceCapability
+    from src.capabilities.navigation.capability import NavigationCapability
+    from src.capabilities.response.capability import ResponseCapability
+    from src.capabilities.triage.capability import TriageCapability
+
+    metadata = dict(payload.metadata)
+    metadata["trace_id"] = trace_id
+    context = ExecutionContext(
+        request_id=request_id,
+        session_id=session_id,
+        text=payload.text,
+        image_base64=payload.image_base64,
+        gps_lat=payload.gps_lat,
+        gps_lng=payload.gps_lng,
+        metadata=metadata,
+    )
+
+    plugin_registry = _build_runtime_plugin_registry()
+    context = await plugin_registry.apply_before_execute(context)
+
+    consultation = ConsultationCapability()
+    triage = TriageCapability()
+    evidence = EvidenceCapability()
+    navigation = NavigationCapability()
+    response = ResponseCapability()
+
+    task_specs = [
+        TaskSpec(
+            name=consultation.name,
+            required=True,
+            runner=lambda ctx, cap=consultation: _run_v3_capability_task(cap, ctx),
+        ),
+        TaskSpec(
+            name=triage.name,
+            required=True,
+            runner=lambda ctx, cap=triage: _run_v3_capability_task(cap, ctx),
+        ),
+        TaskSpec(
+            name=evidence.name,
+            required=False,
+            runner=lambda ctx, cap=evidence: _run_v3_capability_task(cap, ctx),
+        ),
+        TaskSpec(
+            name=navigation.name,
+            required=False,
+            runner=lambda ctx, cap=navigation: _run_v3_capability_task(cap, ctx),
+        ),
+        TaskSpec(
+            name=response.name,
+            required=True,
+            runner=lambda ctx, cap=response: _run_v3_capability_task(cap, ctx),
+        ),
+    ]
+    task_results = await TaskCoordinator(task_specs).run(context)
+
+    capability_results: list[CapabilityResult] = []
+    for task_name, task_result in task_results.items():
+        raw_payload = task_result.get("payload")
+        wrapped_payload = raw_payload if isinstance(raw_payload, dict) else {}
+        payload_dict = (
+            wrapped_payload.get("payload")
+            if isinstance(wrapped_payload.get("payload"), dict)
+            else {}
+        )
+        if not payload_dict and isinstance(raw_payload, dict):
+            payload_dict = raw_payload
+
+        raw_provenance = wrapped_payload.get("provenance")
+        provenance = raw_provenance if isinstance(raw_provenance, dict) else {}
+
+        raw_errors = wrapped_payload.get("errors")
+        cap_errors = [str(item) for item in raw_errors] if isinstance(raw_errors, list) else []
+        if not task_result.get("success", False) and not cap_errors:
+            cap_errors = [_extract_error_message(task_result.get("error"))]
+        capability_results.append(
+            CapabilityResult(
+                name=task_name,
+                success=bool(task_result.get("success", False)),
+                payload=payload_dict,
+                provenance={
+                    "source": "v3_task_coordinator",
+                    "task": task_name,
+                    **provenance,
+                },
+                errors=cap_errors,
+            )
+        )
+
+    capability_results = await plugin_registry.apply_after_execute(context, capability_results)
+    primary = next((item for item in capability_results if item.name == "response"), None)
+    if primary is None and capability_results:
+        primary = capability_results[-1]
+    if primary is None:
+        return _error_response(
+            session_id=session_id,
+            request_id=request_id,
+            trace_id=trace_id,
+            message="assistant_v3_task_runtime_failed_no_results",
+            trace={"request_id": request_id, "error_stage": "task_orchestration"},
+        )
+
+    triage_result = next((item for item in capability_results if item.name == "triage"), None)
+    triage_level_raw = None if triage_result is None else triage_result.payload.get("triage_level")
+    triage_level = triage_level_raw if isinstance(triage_level_raw, str) else None
+
+    runtime_events: list[dict[str, Any]] = [
+        {
+            "event_type": "runtime_started",
+            "request_id": request_id,
+            "session_id": session_id,
+            "data": {"path": "v3_task_coordinator", "task_count": len(task_results)},
+        }
+    ]
+    for task_name, task_result in task_results.items():
+        runtime_events.append(
+            {
+                "event_type": "task_completed",
+                "request_id": request_id,
+                "session_id": session_id,
+                "data": {
+                    "task": task_name,
+                    "success": bool(task_result.get("success", False)),
+                },
+            }
+        )
+    runtime_events.append(
+        {
+            "event_type": "runtime_finished",
+            "request_id": request_id,
+            "session_id": session_id,
+            "data": {
+                "path": "v3_task_coordinator",
+                "success": bool(primary.success),
+                "tasks_executed": len(task_results),
+            },
+        }
+    )
+    _record_runtime_events(session_id, runtime_events)
+
+    output_payload = primary.payload if isinstance(primary.payload, dict) else {}
+    runtime_status = output_payload.get("status")
+    response_status = _normalize_status(runtime_status)
+    if not primary.success:
+        response_status = "error"
+    response_text = output_payload.get("response")
+
+    body: dict[str, Any] = {
+        "status": response_status,
+        "session_id": session_id,
+        "trace_id": trace_id,
+        "response": response_text if isinstance(response_text, str) else "",
+        "runtime_events": runtime_events,
+        "provenance": primary.provenance,
+        "trace": {
+            "request_id": request_id,
+            "path": "v3_task_coordinator",
+            "tasks": {
+                name: {
+                    "success": bool(task_result.get("success", False)),
+                    "error": task_result.get("error"),
+                }
+                for name, task_result in task_results.items()
+            },
+        },
+    }
+    if triage_level is not None:
+        body["triage_level"] = triage_level
+
+    if primary.success and response_status in {"final", "need_more_info"}:
+        _persist_runtime_snapshot(
+            request_id=request_id,
+            session_id=session_id,
+            trace_id=trace_id,
+            status=response_status,
+            response=body["response"],
+            runtime_events=runtime_events,
+            provenance=body["provenance"],
+            trace=body["trace"],
+        )
+        return JSONResponse(status_code=200, content=body)
+
+    message = "; ".join(primary.errors) if primary.errors else "assistant_v3_task_runtime_failed"
+    body["error_message"] = message
+    _persist_runtime_snapshot(
+        request_id=request_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        status="error",
+        response=body["response"],
+        runtime_events=runtime_events,
+        provenance=body["provenance"],
+        trace=body["trace"],
+        error_message=message,
+    )
+    return JSONResponse(status_code=503, content=body)
 
 
 def _error_response(
@@ -251,6 +517,28 @@ async def invoke_assistant_v2(payload: AssistantV2InvokePayload) -> JSONResponse
     request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
     session_id = (payload.session_id or "").strip() or str(uuid4())
     trace_id = (payload.trace_id or "").strip() or str(uuid4())
+
+    if _is_v3_task_runtime(payload):
+        try:
+            return await _invoke_v3_task_coordinator(
+                payload,
+                request_id=request_id,
+                session_id=session_id,
+                trace_id=trace_id,
+            )
+        except Exception as exc:
+            return _error_response(
+                session_id=session_id,
+                request_id=request_id,
+                trace_id=trace_id,
+                message="assistant_v3_task_runtime_failed",
+                trace={
+                    "request_id": request_id,
+                    "error_stage": "task_orchestration",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
 
     try:
         from src.capabilities.legacy_triage.capability import LegacyTriageCapability

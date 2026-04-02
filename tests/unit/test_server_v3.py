@@ -1,6 +1,7 @@
 """Tests for assistant v3 invoke route."""
 
 import os
+from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -139,3 +140,40 @@ def test_assistant_v3_invoke_error_status_maps_to_503(
     assert "error_message" in data
     assert isinstance(data["trace_id"], str)
     UUID(data["trace_id"])
+
+
+def test_assistant_v3_invoke_uses_task_coordinator_when_enabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When v3 task coordinator switch is on, v3 invoke should use coordinator path."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.assistant_v2.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_builtin_plugins_enabled=False,
+            v3_plugin_trace_enabled=True,
+            v3_plugin_medical_footer_enabled=True,
+        ),
+    )
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-task-1",
+            "session_id": "sess-v3-task-1",
+            "trace_id": "trace-v3-task-1",
+            "text": "持续咳嗽两周",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "final"
+    assert data["session_id"] == "sess-v3-task-1"
+    assert data["trace_id"] == "trace-v3-task-1"
+    assert data["triage_level"] == "ROUTINE"
+    assert data["trace"]["path"] == "v3_task_coordinator"
+    assert "已记录症状" in data["response"]
