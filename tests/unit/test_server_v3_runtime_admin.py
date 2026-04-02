@@ -11,7 +11,7 @@ import pytest
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
-from src.platform.state.replay_service import SessionReplayNotFoundError
+from src.platform.state.replay_service import SessionNotResumableError, SessionReplayNotFoundError
 from src.server import app
 
 
@@ -276,3 +276,39 @@ def test_runtime_replay_v3_returns_404_when_service_reports_missing(
     assert replay.json() == {"detail": "session_not_found"}
     assert resume.status_code == 404
     assert resume.json() == {"detail": "session_not_found"}
+
+
+def test_runtime_resume_v3_returns_409_when_session_not_resumable(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resume endpoint should map non-resumable sessions to a stable 409 response."""
+
+    class _ReplayServiceNotResumable:
+        async def replay(self, session_id: str) -> dict[str, Any]:
+            _ = session_id
+            return {
+                "session_id": "sess-no-resume",
+                "snapshot": None,
+                "runtime_events": [{"event_type": "runtime_finished"}],
+                "resume_cursor": {"event_offset": 1},
+                "can_resume": False,
+            }
+
+        async def resume(self, session_id: str) -> dict[str, Any]:
+            _ = session_id
+            raise SessionNotResumableError("session_not_resumable")
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3._REPLAY_SERVICE",
+        _ReplayServiceNotResumable(),
+    )
+
+    response = client.post(
+        "/assistant/v3/runtime/sessions/sess-no-resume/resume",
+        json={"text": "继续"},
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "session_not_resumable"}

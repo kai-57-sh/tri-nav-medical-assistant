@@ -16,6 +16,10 @@ class SessionReplayNotFoundError(LookupError):
     """Raised when replay/resume is requested for an unknown session."""
 
 
+class SessionNotResumableError(RuntimeError):
+    """Raised when a session exists but cannot be resumed safely."""
+
+
 class ReplayService:
     """Build replay payloads and validate session resume eligibility."""
 
@@ -50,7 +54,10 @@ class ReplayService:
     async def resume(self, session_id: str) -> dict[str, Any]:
         """Validate one session can be resumed and return replay metadata."""
 
-        return await self.replay(session_id)
+        replay_state = await self.replay(session_id)
+        if not bool(replay_state.get("can_resume")):
+            raise SessionNotResumableError(session_id)
+        return replay_state
 
 
 def _copy_dict(value: Any) -> dict[str, Any] | None:
@@ -67,21 +74,60 @@ def _copy_events(value: Any) -> list[dict[str, Any]]:
 
 def _build_resume_cursor(*, snapshot: dict[str, Any] | None, runtime_events: list[dict[str, Any]]) -> dict[str, Any]:
     last_event = runtime_events[-1] if runtime_events else {}
-    request_id = None
-    trace_id = None
+    snapshot_request_id = None
+    snapshot_trace_id = None
     snapshot_status = None
     if isinstance(snapshot, dict):
-        request_id = snapshot.get("request_id") if isinstance(snapshot.get("request_id"), str) else None
-        trace_id = snapshot.get("trace_id") if isinstance(snapshot.get("trace_id"), str) else None
+        snapshot_request_id = (
+            snapshot.get("request_id") if isinstance(snapshot.get("request_id"), str) else None
+        )
+        snapshot_trace_id = snapshot.get("trace_id") if isinstance(snapshot.get("trace_id"), str) else None
         snapshot_status = snapshot.get("status") if isinstance(snapshot.get("status"), str) else None
+    latest_event_request_id = _latest_event_request_id(runtime_events)
+    latest_event_trace_id = _latest_event_trace_id(runtime_events)
 
     return {
         "event_offset": len(runtime_events),
         "last_event_type": last_event.get("event_type") if isinstance(last_event, dict) else None,
-        "request_id": request_id,
-        "trace_id": trace_id,
+        "request_id": _prefer_latest_event_id(
+            snapshot_id=snapshot_request_id,
+            latest_event_id=latest_event_request_id,
+        ),
+        "trace_id": _prefer_latest_event_id(
+            snapshot_id=snapshot_trace_id,
+            latest_event_id=latest_event_trace_id,
+        ),
         "snapshot_status": snapshot_status,
     }
+
+
+def _prefer_latest_event_id(*, snapshot_id: str | None, latest_event_id: str | None) -> str | None:
+    if latest_event_id and (not snapshot_id or snapshot_id != latest_event_id):
+        return latest_event_id
+    if snapshot_id:
+        return snapshot_id
+    return latest_event_id
+
+
+def _latest_event_request_id(runtime_events: list[dict[str, Any]]) -> str | None:
+    for event in reversed(runtime_events):
+        request_id = event.get("request_id")
+        if isinstance(request_id, str) and request_id:
+            return request_id
+    return None
+
+
+def _latest_event_trace_id(runtime_events: list[dict[str, Any]]) -> str | None:
+    for event in reversed(runtime_events):
+        trace_id = event.get("trace_id")
+        if isinstance(trace_id, str) and trace_id:
+            return trace_id
+        data = event.get("data")
+        if isinstance(data, dict):
+            nested_trace_id = data.get("trace_id")
+            if isinstance(nested_trace_id, str) and nested_trace_id:
+                return nested_trace_id
+    return None
 
 
 def build_replay_service(

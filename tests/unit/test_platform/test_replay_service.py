@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from src.platform.state.replay_service import ReplayService, SessionReplayNotFoundError
+from src.platform.state.replay_service import (
+    ReplayService,
+    SessionNotResumableError,
+    SessionReplayNotFoundError,
+)
 
 
 class _FakeEventRepo:
@@ -95,3 +99,58 @@ async def test_resume_service_raises_not_found_when_session_missing() -> None:
 
     with pytest.raises(SessionReplayNotFoundError):
         await service.resume("sess-missing")
+
+
+@pytest.mark.asyncio
+async def test_replay_service_prefers_latest_event_ids_for_resume_cursor_when_snapshot_stale() -> None:
+    service = ReplayService(
+        event_repo=_FakeEventRepo(
+            {
+                "sess-stale-cursor": [
+                    {
+                        "event_type": "runtime_started",
+                        "request_id": "req-fresh",
+                        "data": {"trace_id": "trace-fresh"},
+                    },
+                    {
+                        "event_type": "runtime_finished",
+                        "request_id": "req-fresh",
+                        "data": {"trace_id": "trace-fresh"},
+                    },
+                ]
+            }
+        ),
+        snapshot_repo=_FakeSnapshotRepo(
+            {
+                "sess-stale-cursor": {
+                    "request_id": "req-stale",
+                    "trace_id": "trace-stale",
+                    "status": "final",
+                }
+            }
+        ),
+    )
+
+    replay = await service.replay("sess-stale-cursor")
+
+    assert replay["resume_cursor"]["request_id"] == "req-fresh"
+    assert replay["resume_cursor"]["trace_id"] == "trace-fresh"
+    assert replay["resume_cursor"]["event_offset"] == 2
+
+
+@pytest.mark.asyncio
+async def test_resume_service_rejects_non_resumable_session_when_snapshot_missing() -> None:
+    service = ReplayService(
+        event_repo=_FakeEventRepo(
+            {
+                "sess-no-snapshot": [
+                    {"event_type": "runtime_started", "request_id": "req-ephemeral"},
+                    {"event_type": "runtime_finished", "request_id": "req-ephemeral"},
+                ]
+            }
+        ),
+        snapshot_repo=_FakeSnapshotRepo(),
+    )
+
+    with pytest.raises(SessionNotResumableError):
+        await service.resume("sess-no-snapshot")

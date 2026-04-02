@@ -17,7 +17,11 @@ from src.interfaces.api.assistant_v2 import (
     list_runtime_plugins,
 )
 from src.interfaces.api.assistant_v3 import invoke_assistant_v3
-from src.platform.state.replay_service import SessionReplayNotFoundError, build_replay_service
+from src.platform.state.replay_service import (
+    SessionNotResumableError,
+    SessionReplayNotFoundError,
+    build_replay_service,
+)
 
 router = APIRouter(prefix="/assistant/v3/runtime", tags=["assistant-v3-runtime"])
 _REPLAY_SERVICE = build_replay_service()
@@ -99,6 +103,8 @@ async def resume_session_v3(session_id: str, payload: RuntimeResumePayload) -> J
         await _REPLAY_SERVICE.resume(session_id)
     except SessionReplayNotFoundError:
         raise HTTPException(status_code=404, detail="session_not_found")
+    except SessionNotResumableError:
+        raise HTTPException(status_code=409, detail="session_not_resumable")
 
     invoke_payload = AssistantV2InvokePayload(
         request_id=(payload.request_id or "").strip() or f"req-{uuid4()}",
