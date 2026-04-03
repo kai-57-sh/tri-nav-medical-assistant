@@ -26,7 +26,7 @@ def test_capability_result_contains_provenance() -> None:
         name="triage",
         success=True,
         payload={"triage_level": "URGENT"},
-        provenance={"source": "llm", "model": "qwen-plus"},
+        provenance={"source": "llm", "model": "grok-4-1-fast-reasoning"},
         errors=[],
     )
     assert out.provenance["source"] == "llm"

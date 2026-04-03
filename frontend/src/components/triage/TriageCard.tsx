@@ -11,6 +11,7 @@ import {
 import { cn, getTriageIcon, getTriageLabel } from '@/lib/utils';
 import type { TriageResponse } from '@/lib/types';
 import { useState } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 
 interface TriageCardProps {
   data: TriageResponse;
@@ -78,8 +79,8 @@ export function TriageCard({ data, className }: TriageCardProps) {
   }: {
     id: string;
     title: string;
-    icon: React.ComponentType<{ className?: string }>;
-    children: React.ReactNode;
+    icon: ComponentType<{ className?: string }>;
+    children: ReactNode;
   }) => {
     const expanded = isExpanded(id);
     return (

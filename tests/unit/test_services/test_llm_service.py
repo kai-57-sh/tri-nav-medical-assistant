@@ -10,6 +10,22 @@ from src.services.llm_service import LLMService, get_llm_service
 class TestLLMService:
     """Test LLM service operations."""
 
+    async def test_setup_models_uses_grok_multimodal_model(self):
+        """All model slots should use the configured grok multimodal model."""
+        with patch('src.services.llm_service.ChatOpenAI') as mock_chat:
+            mock_chat.return_value = AsyncMock()
+
+            LLMService()
+
+            models = [call.kwargs["model"] for call in mock_chat.call_args_list]
+
+            assert models == [
+                "grok-4-1-fast-reasoning",
+                "grok-4-1-fast-reasoning",
+                "grok-4-1-fast-reasoning",
+                "grok-4-1-fast-reasoning",
+            ]
+
     async def test_extract_symptoms_success(self):
         """Test successful symptom extraction."""
         with patch('src.services.llm_service.ChatOpenAI') as mock_chat:
