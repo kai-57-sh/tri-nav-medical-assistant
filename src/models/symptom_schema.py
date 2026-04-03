@@ -1,6 +1,6 @@
 """Symptom Schema model for clinical extraction."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class VisualFindings(BaseModel):
@@ -28,8 +28,8 @@ class VisualFindings(BaseModel):
         description="Extraction confidence score"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "type": "rash",
                 "summary": "手臂红斑伴丘疹",
@@ -37,6 +37,7 @@ class VisualFindings(BaseModel):
                 "confidence": 0.85
             }
         }
+    )
 
 
 class SymptomSchema(BaseModel):
@@ -83,8 +84,8 @@ class SymptomSchema(BaseModel):
         description="Image-based observations if image uploaded"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "body_part": "手臂",
                 "symptoms": ["红疹", "痒"],
@@ -100,3 +101,4 @@ class SymptomSchema(BaseModel):
                 }
             }
         }
+    )

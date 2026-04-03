@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SessionState(BaseModel):
@@ -61,8 +61,8 @@ class SessionState(BaseModel):
             raise ValueError("turn_count cannot exceed 2")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "session_id": "550e8400-e29b-41d4-a716-446655440000",
                 "turn_count": 1,
@@ -78,6 +78,7 @@ class SessionState(BaseModel):
                 "case_domain": "dermatology"
             }
         }
+    )
 
 # What's NOT stored (privacy constraints):
 # - raw_text: Violates CT-008 (no full text storage)

@@ -1,7 +1,7 @@
 """Triage Assessment model for medical triage decisions."""
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TriageAssessment(BaseModel):
@@ -80,8 +80,8 @@ class TriageAssessment(BaseModel):
         description="IDs of triggered red flag rules (for audit per FR-066)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "triage_level": "ROUTINE",
                 "triage_reason": "症状轻微，无危险信号",
@@ -102,3 +102,4 @@ class TriageAssessment(BaseModel):
                 "red_flags_hit": []
             }
         }
+    )

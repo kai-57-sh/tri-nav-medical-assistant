@@ -1,7 +1,7 @@
 """Navigation Result model for hospital recommendations and routes."""
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RoutePlan(BaseModel):
@@ -20,8 +20,8 @@ class RoutePlan(BaseModel):
         description="Plain-language route description (per FR-036)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "to_hospital_rank": 1,
                 "mode": "driving",
@@ -29,6 +29,7 @@ class RoutePlan(BaseModel):
                 "summary": "大约15分钟车程"
             }
         }
+    )
 
 
 class Hospital(BaseModel):
@@ -48,8 +49,8 @@ class Hospital(BaseModel):
         description="Ranking rationale (per FR-044)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "rank": 1,
                 "name": "北京协和医院",
@@ -61,6 +62,7 @@ class Hospital(BaseModel):
                 "reason": "三甲综合医院，距离较近，急诊/门诊齐全"
             }
         }
+    )
 
 
 class NavigationResult(BaseModel):
@@ -105,8 +107,8 @@ class NavigationResult(BaseModel):
         description="Route to top-ranked hospital (per FR-036, optional)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "radius_km": 10,
                 "hospitals": [
@@ -149,6 +151,7 @@ class NavigationResult(BaseModel):
                 }
             }
         }
+    )
 
 # Validation Rules:
 # - Exactly 3 hospitals: Top recommendation + 2 alternatives (FR-035)

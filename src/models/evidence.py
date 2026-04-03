@@ -1,6 +1,6 @@
 """Evidence model for literature references."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Evidence(BaseModel):
@@ -22,8 +22,8 @@ class Evidence(BaseModel):
     # === Relevance ===
     note: str | None = Field(None, max_length=500, description="Brief relevance explanation")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "pmid": "12345678",
                 "title": "Acute urticaria: Evaluation and management",
@@ -33,6 +33,7 @@ class Evidence(BaseModel):
                 "note": "最新急性荨麻疹诊疗指南"
             }
         }
+    )
 
 # Constraints:
 # - Usage: For public education ONLY, NOT as individual treatment guidance (per entity description in spec)

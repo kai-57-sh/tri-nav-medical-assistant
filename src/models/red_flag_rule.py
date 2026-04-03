@@ -1,7 +1,7 @@
 """Red Flag Rule model for emergency symptom detection."""
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RuleCondition(BaseModel):
@@ -65,8 +65,8 @@ class RedFlagRule(BaseModel):
             raise ValueError("Rule ID must start with 'RF_'")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "RF_BREATHING_DIFFICULTY",
                 "priority": "high",
@@ -83,6 +83,7 @@ class RedFlagRule(BaseModel):
                 "department": ["急诊"]
             }
         }
+    )
 
 # Version Control:
 # - File: config/red_flag_rules.yaml (committed to Git)

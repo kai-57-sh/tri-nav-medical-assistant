@@ -1,5 +1,5 @@
 """Weather Alert model for weather-related travel tips."""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WeatherAlert(BaseModel):
@@ -33,8 +33,8 @@ class WeatherAlert(BaseModel):
         description="Travel advice"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "condition": "小雨",
                 "temp_c": 5,
@@ -43,6 +43,7 @@ class WeatherAlert(BaseModel):
                 "tip": "下雨路滑，出行请注意安全，建议携带雨具"
             }
         }
+    )
 
 # Constraints:
 # - Optional: Weather failure does not block navigation (FR-038, FR-046)
