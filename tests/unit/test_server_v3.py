@@ -164,38 +164,27 @@ def test_public_assistant_invoke_matches_v3_default_route_contract(
 ) -> None:
     """Public compat invoke should expose the same default v3 result semantics."""
 
-    async def fake_compat_invoke(_: AssistantV2InvokePayload) -> JSONResponse:
+    shared_v3_body = {
+        "status": "need_more_info",
+        "session_id": "sess-cutover-v3",
+        "trace_id": "trace-cutover-v3",
+        "response": "请补充持续时间",
+        "safety": {"risk_level": "low", "matched_rules": []},
+        "runtime_events": [{"event_type": "runtime_finished"}],
+        "provenance": {"source": "assistant_v3"},
+        "trace": {"request_id": "req-cutover-v3", "path": "v3_task_coordinator"},
+    }
+    observed_payloads: list[AssistantV2InvokePayload] = []
+
+    async def fake_shared_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
+        observed_payloads.append(payload)
         return JSONResponse(
             status_code=200,
-            content={
-                "status": "need_more_info",
-                "session_id": "sess-cutover-v3",
-                "trace_id": "trace-cutover-v3",
-                "response": "请补充持续时间",
-                "safety": {"risk_level": "low", "matched_rules": []},
-                "runtime_events": [{"event_type": "runtime_finished"}],
-                "provenance": {"source": "assistant_v3"},
-                "trace": {"request_id": "req-cutover-v3", "path": "v3_task_coordinator"},
-            },
+            content=dict(shared_v3_body),
         )
 
-    async def fake_v3_invoke(_: AssistantV2InvokePayload) -> JSONResponse:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "need_more_info",
-                "session_id": "sess-cutover-v3",
-                "trace_id": "trace-cutover-v3",
-                "response": "请补充持续时间",
-                "safety": {"risk_level": "low", "matched_rules": []},
-                "runtime_events": [{"event_type": "runtime_finished"}],
-                "provenance": {"source": "assistant_v3"},
-                "trace": {"request_id": "req-cutover-v3", "path": "v3_task_coordinator"},
-            },
-        )
-
-    monkeypatch.setattr("src.interfaces.api.assistant_compat.invoke_runtime_v3", fake_compat_invoke)
-    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_runtime_v3", fake_v3_invoke)
+    monkeypatch.setattr("src.interfaces.api.assistant_compat.invoke_runtime_v3", fake_shared_invoke)
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_runtime_v3", fake_shared_invoke)
 
     compat_response = client.post(
         "/assistant/invoke",
@@ -224,10 +213,10 @@ def test_public_assistant_invoke_matches_v3_default_route_contract(
     assert v3_response.status_code == 200
     compat_body = compat_response.json()
     v3_body = v3_response.json()
-    assert compat_body["output"]["status"] == v3_body["status"]
-    assert compat_body["output"]["response"] == v3_body["response"]
-    assert compat_body["output"]["trace"]["path"] == v3_body["trace"]["path"]
+    assert compat_body["output"] == v3_body
     assert compat_body["metadata"]["runtime_mode"] == "v3"
+    assert len(observed_payloads) == 2
+    assert all(payload.metadata["runtime_mode"] == "v3" for payload in observed_payloads)
 
 
 @pytest.mark.asyncio
