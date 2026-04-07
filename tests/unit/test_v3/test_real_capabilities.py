@@ -117,6 +117,54 @@ async def test_consultation_and_triage_emit_state_patch(
 
 
 @pytest.mark.asyncio
+async def test_triage_payload_preserves_merged_state_values_but_state_patch_is_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mixed_departments = ["内科", {"name": "急诊"}, 7]
+    mixed_possible_causes = ["感染", {"suspect": "偏头痛"}]
+    mixed_self_care_tips = ["休息", 123]
+    mixed_red_flags = ["胸痛", {"severity": "high"}]
+    triage_reason_obj = {"reason": "machine-output"}
+
+    async def fake_red_flag_detector(state):
+        return {**state}
+
+    async def fake_triage_classifier(state):
+        return {**state, "llm_triage_level": "ROUTINE"}
+
+    async def fake_triage_merger(state):
+        return {
+            **state,
+            "triage_level": "ROUTINE",
+            "triage_reason": triage_reason_obj,
+            "recommended_departments": mixed_departments,
+            "possible_causes": mixed_possible_causes,
+            "self_care_tips": mixed_self_care_tips,
+            "red_flags": mixed_red_flags,
+        }
+
+    monkeypatch.setattr("src.capabilities.triage.capability.red_flag_detector", fake_red_flag_detector)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_classifier", fake_triage_classifier)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_merger", fake_triage_merger)
+
+    context = _build_context()
+    triage = TriageCapability()
+    result = await triage.run(context, await triage.plan(context))
+
+    assert result.payload["triage_reason"] == triage_reason_obj
+    assert result.payload["recommended_departments"] == mixed_departments
+    assert result.payload["possible_causes"] == mixed_possible_causes
+    assert result.payload["self_care_tips"] == mixed_self_care_tips
+    assert result.payload["red_flags"] == mixed_red_flags
+
+    assert result.state_patch["triage"]["triage_reason"] == ""
+    assert result.state_patch["triage"]["recommended_departments"] == ["内科"]
+    assert result.state_patch["triage"]["possible_causes"] == ["感染"]
+    assert result.state_patch["triage"]["self_care_tips"] == ["休息"]
+    assert result.state_patch["triage"]["red_flags"] == ["胸痛"]
+
+
+@pytest.mark.asyncio
 async def test_capabilities_are_no_longer_marked_as_v3_stub(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

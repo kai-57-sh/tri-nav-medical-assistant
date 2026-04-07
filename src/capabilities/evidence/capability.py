@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
+from typing import Any, cast
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
@@ -78,6 +78,43 @@ def _external_tools_enabled(context: ExecutionContext) -> bool:
     return bool(raw)
 
 
+def _try_json_value(value: Any) -> tuple[bool, JSONValue]:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return True, value
+    if isinstance(value, list):
+        out: list[JSONValue] = []
+        for item in value:
+            ok, normalized = _try_json_value(item)
+            if not ok:
+                return False, None
+            out.append(normalized)
+        return True, out
+    if isinstance(value, dict):
+        out_obj: dict[str, JSONValue] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return False, None
+            ok, normalized = _try_json_value(item)
+            if not ok:
+                return False, None
+            out_obj[key] = normalized
+        return True, out_obj
+    return False, None
+
+
+def _normalize_evidence_selected_for_state_patch(raw: Any) -> list[dict[str, JSONValue]]:
+    if not isinstance(raw, list):
+        return []
+    normalized_items: list[dict[str, JSONValue]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        ok, normalized = _try_json_value(item)
+        if ok and isinstance(normalized, dict):
+            normalized_items.append(normalized)
+    return normalized_items
+
+
 class EvidenceCapability:
     """Collect supporting evidence via NCBI query builder + retriever nodes."""
 
@@ -129,7 +166,9 @@ class EvidenceCapability:
 
         evidence_selected_raw = retriever_result.get("evidence_selected")
         evidence_selected = evidence_selected_raw if isinstance(evidence_selected_raw, list) else []
-        evidence_selected_for_patch = [item for item in evidence_selected if isinstance(item, dict)]
+        evidence_selected_for_patch = _normalize_evidence_selected_for_state_patch(
+            evidence_selected_raw
+        )
 
         return CapabilityResult(
             name=self.name,
@@ -143,7 +182,7 @@ class EvidenceCapability:
             state_patch={
                 "evidence": {
                     "ncbi_query": query,
-                    "evidence_selected": evidence_selected_for_patch,
+                    "evidence_selected": cast(JSONValue, evidence_selected_for_patch),
                 }
             },
             provenance={
