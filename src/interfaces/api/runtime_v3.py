@@ -1,7 +1,7 @@
 """Shared runtime entrypoints for assistant v3."""
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
 
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -17,6 +17,8 @@ from src.interfaces.api.assistant_v2 import (
     _serialize_safety_result,
     stream_assistant_v2,
 )
+
+_LEGACY_SESSION_NAMESPACE = uuid5(NAMESPACE_URL, "trinav.runtime_v3.legacy_session")
 
 
 async def _invoke_primary_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
@@ -40,6 +42,15 @@ async def _invoke_primary_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
     )
 
 
+def _legacy_session_id_for_public_session(session_id: str) -> str:
+    """Return a stable UUID for legacy graph usage."""
+
+    try:
+        return str(UUID(session_id))
+    except (ValueError, TypeError, AttributeError):
+        return str(uuid5(_LEGACY_SESSION_NAMESPACE, session_id))
+
+
 async def _invoke_legacy_fallback(payload: AssistantV2InvokePayload) -> dict[str, object]:
     """Invoke the legacy chain directly for v3 fallback."""
 
@@ -47,7 +58,7 @@ async def _invoke_legacy_fallback(payload: AssistantV2InvokePayload) -> dict[str
 
     session_id = (payload.session_id or "").strip() or str(uuid4())
     return await invoke_chain(
-        session_id=session_id,
+        session_id=_legacy_session_id_for_public_session(session_id),
         text=payload.text,
         image_base64=payload.image_base64,
         gps_lat=payload.gps_lat,
@@ -71,12 +82,7 @@ async def _normalized_legacy_fallback_response(
         status=response_status,
         response_text=legacy_payload.get("response"),
     )
-    resolved_session_id = legacy_payload.get("session_id")
-    output_session_id = (
-        resolved_session_id.strip()
-        if isinstance(resolved_session_id, str) and resolved_session_id.strip()
-        else session_id
-    )
+    output_session_id = session_id
     response_text = legacy_payload.get("response")
     error_message = legacy_payload.get("error_message")
     provenance_payload = legacy_payload.get("provenance")

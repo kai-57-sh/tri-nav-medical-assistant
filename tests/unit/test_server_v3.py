@@ -510,6 +510,71 @@ async def test_runtime_v3_legacy_fallback_blank_session_id_uses_resolved_session
 
 
 @pytest.mark.asyncio
+async def test_runtime_v3_legacy_fallback_non_uuid_public_session_uses_stable_internal_uuid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy fallback should map non-UUID public session ids to a stable internal UUID only."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-non-uuid-1",
+        session_id="sess-public-non-uuid-1",
+        trace_id="trace-v3-fallback-non-uuid-1",
+        text="持续低热三天",
+    )
+    seen_legacy_session_ids: list[str] = []
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_invoke_chain(
+        session_id: str,
+        text: str,
+        image_base64: str | None = None,
+        gps_lat: float | None = None,
+        gps_lng: float | None = None,
+        config: object | None = None,
+    ) -> dict[str, object]:
+        _ = (text, image_base64, gps_lat, gps_lng, config)
+        seen_legacy_session_ids.append(session_id)
+        UUID(session_id)
+        return {
+            "status": "final",
+            "session_id": session_id,
+            "response": "legacy fallback response",
+        }
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.chains.triage_chain.invoke_chain", fake_invoke_chain)
+
+    first_response = await invoke_runtime_v3(payload)
+    second_response = await invoke_runtime_v3(payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert len(seen_legacy_session_ids) == 2
+    assert seen_legacy_session_ids[0] == seen_legacy_session_ids[1]
+    assert seen_legacy_session_ids[0] != "sess-public-non-uuid-1"
+
+    first_data = json.loads(first_response.body)
+    second_data = json.loads(second_response.body)
+    assert first_data["session_id"] == "sess-public-non-uuid-1"
+    assert second_data["session_id"] == "sess-public-non-uuid-1"
+
+    state = await get_runtime_session_state("sess-public-non-uuid-1")
+    snapshot = state["snapshot"]
+    assert snapshot is not None
+    assert snapshot["session_id"] == "sess-public-non-uuid-1"
+    assert snapshot["trace_id"] == "trace-v3-fallback-non-uuid-1"
+    assert state["runtime_events"][0]["session_id"] == "sess-public-non-uuid-1"
+    assert state["runtime_events"][-1]["session_id"] == "sess-public-non-uuid-1"
+
+
+@pytest.mark.asyncio
 async def test_runtime_v3_returns_structured_error_when_settings_resolution_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
