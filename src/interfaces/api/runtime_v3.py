@@ -9,7 +9,6 @@ from src.interfaces.api.assistant_v2 import (
     AssistantV2InvokePayload,
     _error_response,
     _invoke_v3_task_coordinator,
-    invoke_assistant_v2,
     stream_assistant_v2,
 )
 
@@ -64,9 +63,6 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
         }
     )
     settings = get_settings()
-
-    if not bool(getattr(settings, "v3_task_coordinator_enabled", False)):
-        return await invoke_assistant_v2(resolved_payload)
 
     try:
         return await _invoke_primary_v3(resolved_payload)

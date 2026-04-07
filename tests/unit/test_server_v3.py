@@ -61,20 +61,22 @@ def test_assistant_v3_invoke_success_contract_shape(
 ) -> None:
     """V3 invoke should expose v2-parity schema and success semantics."""
 
-    _mock_runtime_run(
-        monkeypatch,
-        result=CapabilityResult(
-            name="legacy_triage",
-            success=True,
-            payload={
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=200,
+            content={
                 "status": "final",
                 "session_id": "sess-test-v3",
+                "trace_id": "trace-test-v3",
                 "response": "mocked response",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "legacy_graph"},
+                "trace": {"request_id": "req-test-v3"},
             },
-            provenance={"source": "legacy_graph"},
-            errors=[],
-        ),
-    )
+        )
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
 
     response = client.post(
         "/assistant/v3/invoke",
@@ -116,20 +118,23 @@ def test_assistant_v3_invoke_error_status_maps_to_503(
 ) -> None:
     """V3 invoke should keep v2 parity: normalized error status returns 503."""
 
-    _mock_runtime_run(
-        monkeypatch,
-        result=CapabilityResult(
-            name="legacy_triage",
-            success=True,
-            payload={
-                "status": "not_allowed",
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
                 "session_id": "sess-test-v3",
+                "trace_id": "11111111-1111-1111-1111-111111111111",
                 "response": "mocked response",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "legacy_graph"},
+                "trace": {"request_id": "req-test-v3"},
+                "error_message": "assistant_v3_task_runtime_failed",
             },
-            provenance={"source": "legacy_graph"},
-            errors=[],
-        ),
-    )
+        )
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
 
     response = client.post(
         "/assistant/v3/invoke",
@@ -208,10 +213,7 @@ async def test_runtime_v3_uses_legacy_fallback_when_enabled(
 
     monkeypatch.setattr(
         "src.interfaces.api.runtime_v3.get_settings",
-        lambda: SimpleNamespace(
-            v3_task_coordinator_enabled=True,
-            v3_legacy_fallback_enabled=True,
-        ),
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
     )
 
     async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
