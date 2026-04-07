@@ -17,6 +17,7 @@ from src.core.coordinator.task_coordinator import TaskCoordinator, TaskSpec
 from src.core.plugins.builtin import create_builtin_plugins
 from src.core.plugins.registry import RuntimePluginRegistry
 from src.core.runtime.execution_context import ExecutionContext
+from src.core.runtime.state_patch import apply_state_patch
 from src.core.runtime.types import CapabilityResult, JSONValue
 from src.platform.policy.medical_safety_engine import SafetyResult
 from src.platform.runtime.kernel import (
@@ -233,6 +234,7 @@ async def _run_v3_capability_task(
         "payload": result.payload if isinstance(result.payload, dict) else {},
         "provenance": result.provenance if isinstance(result.provenance, dict) else {},
         "errors": list(result.errors),
+        "state_patch": result.state_patch if isinstance(result.state_patch, dict) else {},
     }
 
 
@@ -320,6 +322,36 @@ async def _invoke_v3_task_coordinator(
     async def _run_task_with_enriched_context(task_name: str, capability: Any) -> dict[str, Any]:
         nonlocal task_context
         task_payload = await _run_v3_capability_task(capability, task_context)
+        task_result = CapabilityResult(
+            name=task_name,
+            success=task_payload.get("status") == "ok",
+            payload=cast(
+                dict[str, JSONValue],
+                task_payload.get("payload") if isinstance(task_payload.get("payload"), dict) else {},
+            ),
+            provenance=cast(
+                dict[str, JSONValue],
+                (
+                    task_payload.get("provenance")
+                    if isinstance(task_payload.get("provenance"), dict)
+                    else {}
+                ),
+            ),
+            errors=(
+                [str(item) for item in task_payload.get("errors")]
+                if isinstance(task_payload.get("errors"), list)
+                else []
+            ),
+            state_patch=cast(
+                dict[str, JSONValue],
+                (
+                    task_payload.get("state_patch")
+                    if isinstance(task_payload.get("state_patch"), dict)
+                    else {}
+                ),
+            ),
+        )
+        task_context = apply_state_patch(task_context, task_result)
         task_context = _enrich_v3_task_context(
             task_context,
             task_name=task_name,
@@ -361,6 +393,8 @@ async def _invoke_v3_task_coordinator(
         cap_errors = [str(item) for item in raw_errors] if isinstance(raw_errors, list) else []
         if not task_result.get("success", False) and not cap_errors:
             cap_errors = [_extract_error_message(task_result.get("error"))]
+        raw_state_patch = wrapped_payload.get("state_patch")
+        state_patch = raw_state_patch if isinstance(raw_state_patch, dict) else {}
         payload_for_result = cast(dict[str, JSONValue], payload_dict)
         provenance_for_result = cast(
             dict[str, JSONValue],
@@ -377,6 +411,7 @@ async def _invoke_v3_task_coordinator(
                 payload=payload_for_result,
                 provenance=provenance_for_result,
                 errors=cap_errors,
+                state_patch=cast(dict[str, JSONValue], state_patch),
             )
         )
 

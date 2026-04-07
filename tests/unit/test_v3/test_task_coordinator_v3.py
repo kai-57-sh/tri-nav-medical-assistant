@@ -3,6 +3,8 @@
 import pytest
 
 from src.core.runtime.execution_context import ExecutionContext
+from src.core.runtime.state_patch import apply_state_patch
+from src.core.runtime.types import CapabilityResult
 
 
 @pytest.mark.asyncio
@@ -80,3 +82,33 @@ async def test_task_coordinator_continues_after_optional_failure() -> None:
     assert results["weather"]["success"] is False
     assert results["triage"]["success"] is True
     assert results["triage"]["payload"]["level"] == "URGENT"
+
+
+def test_apply_state_patch_preserves_existing_values() -> None:
+    seeded = ExecutionContext(
+        request_id="req-state-patch-1",
+        session_id="sess-state-patch-1",
+        text="低热伴咽痛",
+        turn_state={
+            "consultation": {
+                "summary": "已提取主诉：咽痛三天",
+            }
+        },
+    )
+    result = CapabilityResult(
+        name="triage",
+        success=True,
+        payload={},
+        state_patch={
+            "triage": {
+                "triage_level": "ROUTINE",
+                "triage_reason": "生命体征平稳，建议门诊评估",
+            }
+        },
+    )
+
+    updated = apply_state_patch(seeded, result)
+
+    assert updated.turn_state.consultation.summary == "已提取主诉：咽痛三天"
+    assert updated.turn_state.triage.triage_level == "ROUTINE"
+    assert updated.turn_state.triage.triage_reason == "生命体征平稳，建议门诊评估"
