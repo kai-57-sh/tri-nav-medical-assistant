@@ -148,6 +148,45 @@ def test_assistant_v3_invoke_error_status_maps_to_503(
     UUID(data["trace_id"])
 
 
+@pytest.mark.asyncio
+async def test_assistant_v3_invoke_delegates_to_runtime_v3(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V3 invoke should inject runtime_mode and delegate to runtime_v3."""
+
+    observed_payload: AssistantV2InvokePayload | None = None
+    calls = 0
+    delegated_response = JSONResponse({"status": "final"})
+
+    async def fake_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
+        nonlocal calls
+        nonlocal observed_payload
+        calls += 1
+        observed_payload = payload
+        return delegated_response
+
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_runtime_v3", fake_invoke)
+
+    original_payload = AssistantV2InvokePayload(
+        request_id="req-adapter-v3-invoke",
+        session_id="sess-adapter-v3-invoke",
+        trace_id="trace-adapter-v3-invoke",
+        text="头晕",
+        metadata={"runtime_mode": "legacy", "foo": "bar"},
+    )
+
+    response = await invoke_assistant_v3(original_payload)
+
+    assert calls == 1
+    assert observed_payload is not None
+    assert observed_payload is not original_payload
+    assert observed_payload.metadata["runtime_mode"] == "v3"
+    assert observed_payload.metadata["foo"] == "bar"
+    assert original_payload.metadata["runtime_mode"] == "legacy"
+    assert original_payload.metadata["foo"] == "bar"
+    assert response is delegated_response
+
+
 def test_assistant_v3_invoke_uses_task_coordinator_when_enabled(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -596,42 +635,3 @@ def test_assistant_v3_task_coordinator_uses_payload_triage_when_canonical_state_
     assert data["triage_level"] == "URGENT"
     assert data["recommended_departments"] == ["急诊科", "内科"]
     assert data["red_flags"] == ["症状存在加重风险，建议尽快线下就医。"]
-
-
-@pytest.mark.asyncio
-async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """V3 invoke should only inject runtime_mode and delegate to v2 invoke."""
-
-    observed_payload: AssistantV2InvokePayload | None = None
-    calls = 0
-    delegated_response = JSONResponse({"status": "final", "response": "delegated"})
-
-    async def fake_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
-        nonlocal calls
-        nonlocal observed_payload
-        calls += 1
-        observed_payload = payload
-        return delegated_response
-
-    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_assistant_v2", fake_invoke)
-
-    original_payload = AssistantV2InvokePayload(
-        request_id="req-adapter-v3",
-        session_id="sess-adapter-v3",
-        trace_id="trace-adapter-v3",
-        text="咳嗽",
-        metadata={"runtime_mode": "legacy", "foo": "bar"},
-    )
-
-    response = await invoke_assistant_v3(original_payload)
-
-    assert calls == 1
-    assert observed_payload is not None
-    assert observed_payload is not original_payload
-    assert observed_payload.metadata["runtime_mode"] == "v3"
-    assert observed_payload.metadata["foo"] == "bar"
-    assert original_payload.metadata["runtime_mode"] == "legacy"
-    assert original_payload.metadata["foo"] == "bar"
-    assert response is delegated_response

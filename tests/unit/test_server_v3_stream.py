@@ -177,10 +177,10 @@ def test_assistant_v3_stream_contract_doc_mentions_http_200_error_parity() -> No
 
 
 @pytest.mark.asyncio
-async def test_assistant_v3_stream_sets_runtime_mode_and_calls_v2(
+async def test_assistant_v3_stream_sets_runtime_mode_and_calls_runtime_v3(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """V3 stream should only inject runtime_mode and delegate to v2 stream."""
+    """V3 stream should only inject runtime_mode and delegate to runtime_v3."""
 
     observed_payload: AssistantV2InvokePayload | None = None
     calls = 0
@@ -198,7 +198,7 @@ async def test_assistant_v3_stream_sets_runtime_mode_and_calls_v2(
         observed_payload = payload
         return delegated_response
 
-    monkeypatch.setattr("src.interfaces.api.assistant_v3.stream_assistant_v2", fake_stream)
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.stream_runtime_v3", fake_stream)
 
     original_payload = AssistantV2InvokePayload(
         request_id="req-adapter-v3-stream",
