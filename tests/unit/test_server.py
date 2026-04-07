@@ -94,8 +94,8 @@ class TestHealthEndpoint:
                 assert data == {
                     "status": "ready",
                     "dependencies": {
-                        "redis": True,
-                        "llm": True,
+                        "redis": {"healthy": True},
+                        "llm": {"healthy": True},
                     },
                 }
 
@@ -118,8 +118,8 @@ class TestHealthEndpoint:
                 assert data == {
                     "status": "degraded",
                     "dependencies": {
-                        "redis": False,
-                        "llm": True,
+                        "redis": {"healthy": False},
+                        "llm": {"healthy": True},
                     },
                 }
 
@@ -138,8 +138,8 @@ class TestHealthEndpoint:
                 assert data == {
                     "status": "degraded",
                     "dependencies": {
-                        "redis": False,
-                        "llm": False,
+                        "redis": {"healthy": False},
+                        "llm": {"healthy": False},
                     },
                 }
 

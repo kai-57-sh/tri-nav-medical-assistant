@@ -108,22 +108,25 @@ async def health_check() -> dict[str, str]:
     }
 
 
-async def _get_dependency_readiness() -> dict[str, bool]:
+async def _get_dependency_readiness() -> dict[str, dict[str, bool]]:
     """Collect readiness state for operational dependencies."""
     from .services.llm_service import get_llm_service
     from .services.redis_service import get_redis_service
 
-    dependencies = {"redis": False, "llm": False}
+    dependencies = {
+        "redis": {"healthy": False},
+        "llm": {"healthy": False},
+    }
 
     try:
         redis = await get_redis_service()
-        dependencies["redis"] = bool(redis and redis.is_healthy)
+        dependencies["redis"]["healthy"] = bool(redis and redis.is_healthy)
     except Exception:
         logger.warning("Redis readiness check failed", exc_info=True)
 
     try:
         llm = get_llm_service()
-        dependencies["llm"] = bool(llm and llm.is_healthy)
+        dependencies["llm"]["healthy"] = bool(llm and llm.is_healthy)
     except Exception:
         logger.warning("LLM readiness check failed", exc_info=True)
 
@@ -131,10 +134,10 @@ async def _get_dependency_readiness() -> dict[str, bool]:
 
 
 @app.get("/health/ready")
-async def readiness_check(response: Response) -> dict[str, str | dict[str, bool]]:
+async def readiness_check(response: Response) -> dict[str, str | dict[str, dict[str, bool]]]:
     """Readiness endpoint for orchestration probes."""
     dependencies = await _get_dependency_readiness()
-    ready = all(dependencies.values())
+    ready = all(dependency["healthy"] for dependency in dependencies.values())
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
 
     return {
