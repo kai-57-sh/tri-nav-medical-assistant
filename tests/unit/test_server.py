@@ -250,6 +250,46 @@ class TestAssistantCompatRoutes:
             "metadata": {"runtime_mode": "v3"},
         }
 
+    def test_invoke_endpoint_preserves_http_200_for_structured_runtime_error(
+        self,
+        client,
+        monkeypatch,
+    ):
+        """Compat invoke should wrap structured runtime errors with legacy HTTP 200 transport."""
+
+        async def fake_invoke(payload):
+            _ = payload
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "error",
+                    "session_id": "sess-compat-error",
+                    "trace_id": "trace-compat-error",
+                    "response": "",
+                    "error_message": "assistant_v3_task_runtime_failed",
+                },
+            )
+
+        monkeypatch.setattr("src.interfaces.api.assistant_compat.invoke_runtime_v3", fake_invoke)
+
+        response = client.post(
+            "/assistant/invoke",
+            json={
+                "input": {
+                    "request_id": "req-compat-error",
+                    "session_id": "sess-compat-error",
+                    "trace_id": "trace-compat-error",
+                    "text": "test error",
+                }
+            },
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["output"]["status"] == "error"
+        assert response.json()["output"]["error_message"] == "assistant_v3_task_runtime_failed"
+        assert response.json()["metadata"]["runtime_mode"] == "v3"
+
     def test_stream_endpoint_exists_via_compat_adapter(self, client, monkeypatch):
         """Compat stream should inject v3 runtime mode and preserve SSE transport."""
 

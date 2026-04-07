@@ -44,10 +44,11 @@ async def invoke_assistant_compat(payload: AssistantCompatEnvelope) -> JSONRespo
     """Delegate invoke calls to runtime v3 and preserve the legacy envelope."""
 
     delegated = await invoke_runtime_v3(_with_v3_runtime_mode(payload.input))
+    output = _decode_json_response_body(delegated)
     return JSONResponse(
-        status_code=delegated.status_code,
+        status_code=200 if output else delegated.status_code,
         content={
-            "output": _decode_json_response_body(delegated),
+            "output": output,
             "metadata": {"runtime_mode": "v3"},
         },
     )
