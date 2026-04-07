@@ -52,6 +52,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable TriNav v3 shadow comparison"
     )
+    v3_legacy_fallback_enabled: bool = Field(
+        default=False,
+        description="Enable legacy fallback when v3 runtime primary path fails",
+    )
     v3_task_coordinator_enabled: bool = Field(
         default=False,
         description="Enable v3 capability task coordinator path",

@@ -13,6 +13,7 @@ os.environ.setdefault("QWEN_API_KEY", "test-key")
 from src.core.runtime.types import CapabilityResult
 from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload
 from src.interfaces.api.assistant_v3 import invoke_assistant_v3
+from src.interfaces.api.runtime_v3 import invoke_runtime_v3
 from src.server import app
 
 
@@ -185,6 +186,51 @@ async def test_assistant_v3_invoke_delegates_to_runtime_v3(
     assert original_payload.metadata["runtime_mode"] == "legacy"
     assert original_payload.metadata["foo"] == "bar"
     assert response is delegated_response
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_uses_legacy_fallback_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runtime v3 should return legacy response when fallback is explicitly enabled."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-1",
+        session_id="sess-v3-fallback-1",
+        trace_id="trace-v3-fallback-1",
+        text="头痛发热",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-1",
+        "response": "legacy fallback response",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_legacy_fallback_enabled=True,
+        ),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    assert isinstance(response, JSONResponse)
+    assert response.body == (
+        b'{"status":"final","session_id":"sess-v3-fallback-1",'
+        b'"response":"legacy fallback response"}'
+    )
 
 
 def test_assistant_v3_invoke_uses_task_coordinator_when_enabled(
