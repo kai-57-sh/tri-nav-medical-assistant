@@ -12,6 +12,8 @@ from src.interfaces.api.assistant_v2 import (
     _error_response,
     _invoke_v3_task_coordinator,
     _normalize_status,
+    _persist_runtime_snapshot,
+    _record_runtime_events,
     _serialize_safety_result,
     stream_assistant_v2,
 )
@@ -53,7 +55,7 @@ async def _invoke_legacy_fallback(payload: AssistantV2InvokePayload) -> dict[str
     )
 
 
-def _normalized_legacy_fallback_response(
+async def _normalized_legacy_fallback_response(
     legacy_payload: dict[str, object],
     *,
     request_id: str,
@@ -73,6 +75,16 @@ def _normalized_legacy_fallback_response(
     output_session_id = resolved_session_id if isinstance(resolved_session_id, str) else session_id
     response_text = legacy_payload.get("response")
     error_message = legacy_payload.get("error_message")
+    provenance_payload = legacy_payload.get("provenance")
+    provenance: dict[str, Any] = {
+        "source": "legacy_graph",
+        "fallback": "v3_legacy",
+    }
+    if isinstance(provenance_payload, dict):
+        provenance = {
+            **{str(key): value for key, value in provenance_payload.items()},
+            **provenance,
+        }
 
     runtime_events = [
         {
@@ -99,13 +111,10 @@ def _normalized_legacy_fallback_response(
         "status": response_status,
         "session_id": output_session_id,
         "trace_id": trace_id,
-        "response": response_text if isinstance(response_text, str) else "",
+        "response": safety_result.text,
         "safety": _serialize_safety_result(safety_result),
         "runtime_events": runtime_events,
-        "provenance": {
-            "source": "legacy_graph",
-            "fallback": "v3_legacy",
-        },
+        "provenance": provenance,
         "trace": {
             "request_id": request_id,
             "path": "legacy_fallback",
@@ -115,10 +124,33 @@ def _normalized_legacy_fallback_response(
     }
 
     if response_status in {"final", "need_more_info"}:
+        await _record_runtime_events(output_session_id, runtime_events)
+        await _persist_runtime_snapshot(
+            request_id=request_id,
+            session_id=output_session_id,
+            trace_id=trace_id,
+            status=response_status,
+            response=body["response"],
+            runtime_events=runtime_events,
+            provenance=body["provenance"],
+            trace=body["trace"],
+        )
         return JSONResponse(status_code=200, content=body)
 
     body["error_message"] = (
         error_message if isinstance(error_message, str) and error_message else "assistant_v3_legacy_fallback_failed"
+    )
+    await _record_runtime_events(output_session_id, runtime_events)
+    await _persist_runtime_snapshot(
+        request_id=request_id,
+        session_id=output_session_id,
+        trace_id=trace_id,
+        status="error",
+        response=body["response"],
+        runtime_events=runtime_events,
+        provenance=body["provenance"],
+        trace=body["trace"],
+        error_message=body["error_message"],
     )
     return JSONResponse(status_code=503, content=body)
 
@@ -142,8 +174,25 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
         return await _invoke_primary_v3(resolved_payload)
     except Exception as exc:
         if bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
-            return _normalized_legacy_fallback_response(
-                await _invoke_legacy_fallback(resolved_payload),
+            try:
+                legacy_payload = await _invoke_legacy_fallback(resolved_payload)
+            except Exception as fallback_exc:
+                return await _error_response(
+                    session_id=session_id,
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    message="assistant_v3_task_runtime_failed",
+                    trace={
+                        "request_id": request_id,
+                        "error_stage": "task_orchestration",
+                        "error_type": type(fallback_exc).__name__,
+                        "error_message": str(fallback_exc),
+                        "primary_error_type": type(exc).__name__,
+                        "primary_error_message": str(exc),
+                    },
+                )
+            return await _normalized_legacy_fallback_response(
+                legacy_payload,
                 request_id=request_id,
                 session_id=session_id,
                 trace_id=trace_id,

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
+from src.interfaces.api.assistant_v2 import _persist_runtime_snapshot, _record_runtime_events
 from src.platform.state.replay_service import SessionNotResumableError, SessionReplayNotFoundError
 from src.server import app
 
@@ -126,20 +127,8 @@ def test_runtime_replay_v3_returns_snapshot_after_invoke(
 ) -> None:
     """Replay endpoint should return persisted invoke snapshot and events."""
 
-    _mock_runtime_run(
-        monkeypatch,
-        result=CapabilityResult(
-            name="legacy_triage",
-            success=True,
-            payload={
-                "status": "final",
-                "session_id": "sess-replay-v3",
-                "response": "mocked replay response",
-            },
-            provenance={"source": "legacy_graph"},
-            errors=[],
-        ),
-        runtime_events=[
+    async def fake_primary(_payload):  # type: ignore[no-untyped-def]
+        runtime_events = [
             {
                 "event_type": "runtime_started",
                 "request_id": "req-replay-v3",
@@ -152,8 +141,35 @@ def test_runtime_replay_v3_returns_snapshot_after_invoke(
                 "session_id": "sess-replay-v3",
                 "data": {"capabilities_executed": 1, "success": True},
             },
-        ],
-    )
+        ]
+        provenance = {"source": "legacy_graph"}
+        trace = {"request_id": "req-replay-v3", "path": "test_primary"}
+        await _record_runtime_events("sess-replay-v3", runtime_events)
+        await _persist_runtime_snapshot(
+            request_id="req-replay-v3",
+            session_id="sess-replay-v3",
+            trace_id="trace-replay-v3",
+            status="final",
+            response="mocked replay response",
+            runtime_events=runtime_events,
+            provenance=provenance,
+            trace=trace,
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "final",
+                "session_id": "sess-replay-v3",
+                "trace_id": "trace-replay-v3",
+                "response": "mocked replay response",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": runtime_events,
+                "provenance": provenance,
+                "trace": trace,
+            },
+        )
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
 
     invoke = client.post(
         "/assistant/v3/invoke",
