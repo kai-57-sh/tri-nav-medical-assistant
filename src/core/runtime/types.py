@@ -18,6 +18,7 @@ class CapabilityResult(BaseModel):
     payload: dict[str, JSONValue]
     provenance: dict[str, JSONValue] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
+    state_patch: dict[str, JSONValue] = Field(default_factory=dict)
 
 
 class RuntimeEvent(BaseModel):
