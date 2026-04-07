@@ -487,6 +487,44 @@ async def test_response_capability_uses_turn_state_instead_of_text_heuristics(
 
 
 @pytest.mark.asyncio
+async def test_response_capability_falls_back_to_metadata_when_canonical_navigation_dicts_are_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_state: dict[str, object] = {}
+
+    async def fake_reasoning_verifier(state):
+        captured_state["navigation_result"] = state.get("navigation_result")
+        captured_state["weather_alert"] = state.get("weather_alert")
+        return {
+            **state,
+            "status": "final",
+            "final_response": "metadata navigation fallback used",
+        }
+
+    monkeypatch.setattr("src.capabilities.response.capability.reasoning_verifier", fake_reasoning_verifier)
+
+    context = ExecutionContext(
+        request_id="req-v3-real-5",
+        session_id="sess-v3-real-5",
+        text="头痛两天",
+        metadata={
+            "navigation_result": {"hospital": "协和医院"},
+            "weather_alert": {"level": "yellow"},
+        },
+        turn_state=MedicalTurnState(),
+    )
+    context.turn_state.navigation.navigation_result = {}
+    context.turn_state.navigation.weather_alert = {}
+
+    response = ResponseCapability()
+    result = await response.run(context, {"enabled": True})
+
+    assert result.success is True
+    assert captured_state["navigation_result"] == {"hospital": "协和医院"}
+    assert captured_state["weather_alert"] == {"level": "yellow"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("capability", "expected_status"),
     [

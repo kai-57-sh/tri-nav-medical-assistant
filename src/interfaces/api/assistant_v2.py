@@ -432,7 +432,7 @@ async def _invoke_v3_task_coordinator(
     triage_result = next((item for item in capability_results if item.name == "triage"), None)
     triage_level_raw = None if triage_result is None else triage_result.payload.get("triage_level")
     turn_state_triage = task_context.turn_state.triage
-    triage_level = turn_state_triage.triage_level
+    triage_level: str | None = turn_state_triage.triage_level
     if triage_level is None:
         triage_level = triage_level_raw if isinstance(triage_level_raw, str) else None
 

@@ -60,6 +60,14 @@ def _normalize_dict_list(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)]
 
 
+def _prefer_non_empty_dict(canonical: Any, fallback: Any) -> dict[str, Any] | None:
+    if isinstance(canonical, dict) and canonical:
+        return canonical
+    if isinstance(fallback, dict):
+        return fallback
+    return None
+
+
 def _triage_defaults(triage_level: str) -> tuple[list[str], str]:
     if triage_level == "EMERGENCY":
         return ["急诊"], "检测到高风险症状，建议立即急诊评估"
@@ -117,15 +125,13 @@ def _build_response_state(context: ExecutionContext) -> dict[str, Any]:
         or _normalize_str_list(metadata.get("red_flags"))
         or ["若出现呼吸困难、胸痛、意识改变，请立即急诊。"]
     )
-    navigation_result = (
-        navigation_state.navigation_result
-        if isinstance(navigation_state.navigation_result, dict)
-        else (metadata.get("navigation_result") if isinstance(metadata.get("navigation_result"), dict) else None)
+    navigation_result = _prefer_non_empty_dict(
+        navigation_state.navigation_result,
+        metadata.get("navigation_result"),
     )
-    weather_alert = (
-        navigation_state.weather_alert
-        if isinstance(navigation_state.weather_alert, dict)
-        else (metadata.get("weather_alert") if isinstance(metadata.get("weather_alert"), dict) else None)
+    weather_alert = _prefer_non_empty_dict(
+        navigation_state.weather_alert,
+        metadata.get("weather_alert"),
     )
     evidence_selected = (
         _normalize_dict_list(evidence_state.evidence_selected)

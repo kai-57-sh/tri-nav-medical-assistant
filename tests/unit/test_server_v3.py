@@ -486,6 +486,118 @@ def test_assistant_v3_task_coordinator_response_fields_prefer_turn_state(
     assert data["red_flags"] == ["突发剧烈头痛伴意识改变"]
 
 
+def test_assistant_v3_task_coordinator_uses_payload_triage_when_canonical_state_is_empty(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When canonical triage state is empty, compatibility fallback should use triage payload."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.assistant_v2.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_builtin_plugins_enabled=False,
+            v3_plugin_trace_enabled=True,
+            v3_plugin_medical_footer_enabled=True,
+        ),
+    )
+
+    async def fake_consultation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="consultation",
+            success=True,
+            payload={"status": "ok", "summary": "mock summary"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_triage_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="triage",
+            success=True,
+            payload={
+                "status": "ok",
+                "triage_level": "URGENT",
+                "triage_reason": "payload says urgent",
+                "recommended_departments": ["急诊", "内科"],
+                "red_flags": ["若出现胸痛请立即急诊"],
+            },
+            provenance={"source": "test"},
+            errors=[],
+            state_patch={"triage": {}},
+        )
+
+    async def fake_evidence_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="evidence",
+            success=True,
+            payload={"status": "ok", "evidence_signal": "evidence_pending", "evidence_selected": []},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_navigation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="navigation",
+            success=True,
+            payload={"status": "ok", "navigation_signal": "routing_unavailable"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_response_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="response",
+            success=True,
+            payload={"status": "final", "response": "compatibility fallback response"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "src.capabilities.consultation.capability.ConsultationCapability.run",
+        fake_consultation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.triage.capability.TriageCapability.run",
+        fake_triage_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.evidence.capability.EvidenceCapability.run",
+        fake_evidence_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.navigation.capability.NavigationCapability.run",
+        fake_navigation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.response.capability.ResponseCapability.run",
+        fake_response_run,
+    )
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-compat-fallback-1",
+            "session_id": "sess-v3-compat-fallback-1",
+            "trace_id": "trace-v3-compat-fallback-1",
+            "text": "持续高热并加重",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["triage_level"] == "URGENT"
+    assert data["recommended_departments"] == ["急诊科", "内科"]
+    assert data["red_flags"] == ["症状存在加重风险，建议尽快线下就医。"]
+
+
 @pytest.mark.asyncio
 async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
     monkeypatch: pytest.MonkeyPatch,
