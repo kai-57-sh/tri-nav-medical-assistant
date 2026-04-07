@@ -322,6 +322,7 @@ async def _invoke_v3_task_coordinator(
     async def _run_task_with_enriched_context(task_name: str, capability: Any) -> dict[str, Any]:
         nonlocal task_context
         task_payload = await _run_v3_capability_task(capability, task_context)
+        raw_errors = task_payload.get("errors")
         task_result = CapabilityResult(
             name=task_name,
             success=task_payload.get("status") == "ok",
@@ -338,8 +339,8 @@ async def _invoke_v3_task_coordinator(
                 ),
             ),
             errors=(
-                [str(item) for item in task_payload.get("errors")]
-                if isinstance(task_payload.get("errors"), list)
+                [str(item) for item in raw_errors]
+                if isinstance(raw_errors, list)
                 else []
             ),
             state_patch=cast(
