@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.testclient import TestClient
 
 from src.server import app, lifespan
@@ -198,23 +199,87 @@ class TestCORSMiddleware:
         assert response.status_code in [200, 405]  # 405 is OK for OPTIONS without handler
 
 
-class TestLangServeRoutes:
-    """Tests for LangServe route integration."""
+class TestAssistantCompatRoutes:
+    """Tests for the /assistant compatibility adapter."""
 
-    def test_invoke_endpoint_exists(self, client):
-        """Test that the LangServe invoke endpoint is registered."""
-        # LangServe creates POST /assistant/invoke
-        # We can't easily test the actual invoke without mocking the chain
-        # but we can verify the endpoint exists
+    def test_invoke_endpoint_wraps_v3_runtime_response(self, client, monkeypatch):
+        """Compat invoke should unwrap input, delegate to v3, and wrap the response."""
+
+        observed_payload = None
+
+        async def fake_invoke(payload):
+            nonlocal observed_payload
+            observed_payload = payload
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "final",
+                    "session_id": "sess-compat",
+                    "trace_id": "trace-compat",
+                    "response": "compat ok",
+                },
+            )
+
+        monkeypatch.setattr("src.interfaces.api.assistant_compat.invoke_runtime_v3", fake_invoke)
+
         response = client.post(
             "/assistant/invoke",
-            json={"input": {"text": "test"}},
-            headers={"Content-Type": "application/json"}
+            json={
+                "input": {
+                    "request_id": "req-compat",
+                    "session_id": "sess-compat",
+                    "trace_id": "trace-compat",
+                    "text": "test",
+                }
+            },
+            headers={"Content-Type": "application/json"},
         )
 
-        # Should get a response (even if it's an error from missing services)
-        # This verifies the route is registered
-        assert response.status_code in [200, 400, 500, 503]
+        assert response.status_code == 200
+        assert observed_payload is not None
+        assert response.json() == {
+            "output": {
+                "status": "final",
+                "session_id": "sess-compat",
+                "trace_id": "trace-compat",
+                "response": "compat ok",
+            },
+            "metadata": {"runtime_mode": "v3"},
+        }
+
+    def test_stream_endpoint_exists_via_compat_adapter(self, client, monkeypatch):
+        """Compat stream should accept the input envelope and preserve SSE transport."""
+
+        observed_payload = None
+
+        async def event_stream():
+            yield b"event: status\ndata: {\"status\":\"start\"}\n\n"
+            yield b"data: [DONE]\n\n"
+
+        async def fake_stream(payload):
+            nonlocal observed_payload
+            observed_payload = payload
+            return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+        monkeypatch.setattr("src.interfaces.api.assistant_compat.stream_runtime_v3", fake_stream)
+
+        response = client.post(
+            "/assistant/stream",
+            json={
+                "input": {
+                    "request_id": "req-compat-stream",
+                    "session_id": "sess-compat-stream",
+                    "trace_id": "trace-compat-stream",
+                    "text": "test stream",
+                }
+            },
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 200
+        assert observed_payload is not None
+        assert "text/event-stream" in response.headers.get("content-type", "")
+        assert response.text == 'event: status\ndata: {"status":"start"}\n\ndata: [DONE]\n\n'
 
 
 class TestMainFunction:

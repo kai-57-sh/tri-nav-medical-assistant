@@ -1,19 +1,15 @@
-"""LangServe server for TriNav.
+"""Server entry point for TriNav.
 
-This module provides the FastAPI/LangServe entry point for the TriNav API.
-Exposes the triage workflow at POST /assistant/invoke.
+This module provides the FastAPI entry point for the TriNav API.
+Exposes the assistant compatibility surface at POST /assistant/invoke.
 """
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from langserve import add_routes
-
-from .chains.triage_chain import chain
 from .config.settings import get_settings
 from .utils.logging_config import get_logger, setup_logging
 from .utils.metrics import external_service_health
@@ -79,22 +75,15 @@ app.add_middleware(
 )
 
 
-# Add LangServe routes
-add_routes(
-    app,
-    cast(Any, chain),
-    path="/assistant",
-    input_type=dict,
-    output_type=dict,
-)
-
 try:
+    from .interfaces.api.assistant_compat import router as assistant_compat_router
     from .interfaces.api.assistant_v2 import router as assistant_v2_router
     from .interfaces.api.assistant_v3 import router as assistant_v3_router
     from .interfaces.api.runtime_admin_v3 import router as runtime_admin_v3_router
     from .interfaces.api.shadow_compare import router as shadow_compare_router
     from .interfaces.api.shadow_compare_v3 import router as shadow_compare_v3_router
 
+    app.include_router(assistant_compat_router)
     app.include_router(assistant_v2_router)
     app.include_router(assistant_v3_router)
     app.include_router(runtime_admin_v3_router)
