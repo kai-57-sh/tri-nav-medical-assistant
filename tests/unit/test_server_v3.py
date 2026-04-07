@@ -464,6 +464,84 @@ async def test_runtime_v3_successful_legacy_fallback_persists_runtime_state(
     assert state["runtime_events"][-1]["event_type"] == "runtime_finished"
 
 
+@pytest.mark.asyncio
+async def test_runtime_v3_legacy_fallback_blank_session_id_uses_resolved_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Blank legacy session ids should fall back to the resolved request session id."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-blank-session-1",
+        session_id="sess-v3-fallback-blank-session-1",
+        trace_id="trace-v3-fallback-blank-session-1",
+        text="持续低热三天",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "   ",
+        "response": "legacy fallback response",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    data = json.loads(response.body)
+    assert data["session_id"] == "sess-v3-fallback-blank-session-1"
+    state = await get_runtime_session_state("sess-v3-fallback-blank-session-1")
+    snapshot = state["snapshot"]
+    assert snapshot is not None
+    assert snapshot["session_id"] == "sess-v3-fallback-blank-session-1"
+    assert state["runtime_events"][0]["session_id"] == "sess-v3-fallback-blank-session-1"
+    assert state["runtime_events"][-1]["session_id"] == "sess-v3-fallback-blank-session-1"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_returns_structured_error_when_settings_resolution_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings resolution failures should return a structured v3 503 envelope."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-settings-error-1",
+        session_id="sess-v3-settings-error-1",
+        trace_id="trace-v3-settings-error-1",
+        text="头痛发热",
+    )
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: (_ for _ in ()).throw(RuntimeError("settings unavailable")),
+    )
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 503
+    data = json.loads(response.body)
+    assert data["status"] == "error"
+    assert data["session_id"] == "sess-v3-settings-error-1"
+    assert data["trace_id"] == "trace-v3-settings-error-1"
+    assert data["response"] == ""
+    assert data["safety"] == {"risk_level": "low", "matched_rules": []}
+    assert isinstance(data["runtime_events"], list)
+    assert data["provenance"]["source"] == "assistant_v2"
+    assert data["trace"]["error_stage"] == "settings"
+    assert data["error_message"] == "assistant_v3_task_runtime_failed"
+
+
 def test_assistant_v3_invoke_uses_task_coordinator_when_enabled(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

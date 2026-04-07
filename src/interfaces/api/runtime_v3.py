@@ -72,7 +72,11 @@ async def _normalized_legacy_fallback_response(
         response_text=legacy_payload.get("response"),
     )
     resolved_session_id = legacy_payload.get("session_id")
-    output_session_id = resolved_session_id if isinstance(resolved_session_id, str) else session_id
+    output_session_id = (
+        resolved_session_id.strip()
+        if isinstance(resolved_session_id, str) and resolved_session_id.strip()
+        else session_id
+    )
     response_text = legacy_payload.get("response")
     error_message = legacy_payload.get("error_message")
     provenance_payload = legacy_payload.get("provenance")
@@ -168,12 +172,12 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
             "trace_id": trace_id,
         }
     )
-    settings = get_settings()
-
+    settings: Any | None = None
     try:
+        settings = get_settings()
         return await _invoke_primary_v3(resolved_payload)
     except Exception as exc:
-        if bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
+        if settings is not None and bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
             try:
                 legacy_payload = await _invoke_legacy_fallback(resolved_payload)
             except Exception as fallback_exc:
@@ -205,7 +209,7 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
             message="assistant_v3_task_runtime_failed",
             trace={
                 "request_id": request_id,
-                "error_stage": "task_orchestration",
+                "error_stage": "settings" if settings is None else "task_orchestration",
                 "error_type": type(exc).__name__,
                 "error_message": str(exc),
             },
