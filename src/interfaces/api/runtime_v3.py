@@ -82,6 +82,7 @@ async def _normalized_legacy_fallback_response(
 ) -> JSONResponse:
     """Wrap legacy fallback output in the public v3 response envelope."""
 
+    extra_snapshot_fields: dict[str, Any] = {}
     runtime_status = legacy_payload.get("status")
     response_status = _normalize_status(runtime_status)
     safety_result = _enforce_response_safety(
@@ -141,20 +142,25 @@ async def _normalized_legacy_fallback_response(
     triage_level = legacy_payload.get("triage_level")
     if isinstance(triage_level, str):
         body["triage_level"] = triage_level
+        extra_snapshot_fields["triage_level"] = triage_level
     recommended_departments = legacy_payload.get("recommended_departments")
     if isinstance(recommended_departments, list) and all(
         isinstance(item, str) for item in recommended_departments
     ):
         body["recommended_departments"] = recommended_departments
+        extra_snapshot_fields["recommended_departments"] = recommended_departments
     possible_causes = legacy_payload.get("possible_causes")
     if isinstance(possible_causes, list) and all(isinstance(item, str) for item in possible_causes):
         body["possible_causes"] = possible_causes
+        extra_snapshot_fields["possible_causes"] = possible_causes
     red_flags = legacy_payload.get("red_flags")
     if isinstance(red_flags, list) and all(isinstance(item, str) for item in red_flags):
         body["red_flags"] = red_flags
+        extra_snapshot_fields["red_flags"] = red_flags
     disclaimer = legacy_payload.get("disclaimer")
     if isinstance(disclaimer, str):
         body["disclaimer"] = disclaimer
+        extra_snapshot_fields["disclaimer"] = disclaimer
 
     if response_status in {"final", "need_more_info"}:
         await _record_runtime_events(output_session_id, runtime_events)
@@ -167,6 +173,7 @@ async def _normalized_legacy_fallback_response(
             runtime_events=runtime_events,
             provenance=body["provenance"],
             trace=body["trace"],
+            extra_snapshot_fields=extra_snapshot_fields,
         )
         return JSONResponse(status_code=200, content=body)
 
@@ -184,6 +191,7 @@ async def _normalized_legacy_fallback_response(
         provenance=body["provenance"],
         trace=body["trace"],
         error_message=body["error_message"],
+        extra_snapshot_fields=extra_snapshot_fields,
     )
     return JSONResponse(status_code=503, content=body)
 

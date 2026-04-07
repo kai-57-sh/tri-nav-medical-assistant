@@ -536,6 +536,11 @@ async def test_runtime_v3_successful_legacy_fallback_persists_runtime_state(
         "status": "final",
         "session_id": "sess-v3-fallback-persist-1",
         "response": "legacy fallback persisted response",
+        "triage_level": "ROUTINE",
+        "recommended_departments": ["全科", "内科"],
+        "possible_causes": ["上呼吸道感染（疑似）"],
+        "red_flags": ["若呼吸困难请立即急诊"],
+        "disclaimer": "本建议仅供参考，不替代专业医疗诊断。",
     }
 
     monkeypatch.setattr(
@@ -562,6 +567,11 @@ async def test_runtime_v3_successful_legacy_fallback_persists_runtime_state(
     assert snapshot["trace_id"] == "trace-v3-fallback-persist-1"
     assert snapshot["response"] == "legacy fallback persisted response"
     assert snapshot["trace"]["path"] == "legacy_fallback"
+    assert snapshot["triage_level"] == "ROUTINE"
+    assert snapshot["recommended_departments"] == ["全科", "内科"]
+    assert snapshot["possible_causes"] == ["上呼吸道感染（疑似）"]
+    assert snapshot["red_flags"] == ["若呼吸困难请立即急诊"]
+    assert snapshot["disclaimer"] == "本建议仅供参考，不替代专业医疗诊断。"
     assert isinstance(state["runtime_events"], list)
     assert state["runtime_events"][0]["event_type"] == "runtime_fallback_triggered"
     assert state["runtime_events"][-1]["event_type"] == "runtime_finished"

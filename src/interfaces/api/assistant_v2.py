@@ -78,6 +78,7 @@ async def _persist_runtime_snapshot(
     provenance: dict[str, Any],
     trace: dict[str, Any],
     error_message: str | None = None,
+    extra_snapshot_fields: dict[str, Any] | None = None,
 ) -> None:
     snapshot = {
         "request_id": request_id,
@@ -91,6 +92,8 @@ async def _persist_runtime_snapshot(
     }
     if error_message is not None:
         snapshot["error_message"] = error_message
+    if isinstance(extra_snapshot_fields, dict):
+        snapshot.update(_copy_dict(extra_snapshot_fields))
     await _RUNTIME_SNAPSHOT_STORE.upsert(session_id, snapshot)
 
 
