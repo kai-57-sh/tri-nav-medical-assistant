@@ -248,6 +248,61 @@ async def test_runtime_v3_uses_legacy_fallback_when_enabled(
 
 
 @pytest.mark.asyncio
+async def test_runtime_v3_falls_back_when_primary_returns_structured_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Structured primary error responses should still trigger fallback when enabled."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-from-response-1",
+        session_id="sess-v3-fallback-from-response-1",
+        trace_id="trace-v3-fallback-from-response-1",
+        text="头痛发热",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-from-response-1",
+        "response": "legacy fallback response",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "session_id": "sess-v3-fallback-from-response-1",
+                "trace_id": "trace-v3-fallback-from-response-1",
+                "response": "",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "assistant_v3"},
+                "trace": {"error_type": "PrimaryReturnedError"},
+                "error_message": "primary returned structured error",
+            },
+        )
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    data = json.loads(response.body)
+    assert data["status"] == "final"
+    assert data["session_id"] == "sess-v3-fallback-from-response-1"
+    assert data["response"] == "legacy fallback response"
+    assert data["trace"]["path"] == "legacy_fallback"
+
+
+@pytest.mark.asyncio
 async def test_runtime_v3_legacy_fallback_applies_safe_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -289,6 +344,54 @@ async def test_runtime_v3_legacy_fallback_applies_safe_text(
     assert "建议尽快就医" in data["response"]
     assert data["safety"]["risk_level"] == "high"
     assert "rewrite.confirmed_diagnosis" in data["safety"]["matched_rules"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_successful_legacy_fallback_preserves_structured_clinical_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful legacy fallback should expose key structured clinical fields when present."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-structured-1",
+        session_id="sess-v3-fallback-structured-1",
+        trace_id="trace-v3-fallback-structured-1",
+        text="持续咳嗽两周",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-structured-1",
+        "response": "legacy fallback response",
+        "triage_level": "ROUTINE",
+        "recommended_departments": ["全科", "内科"],
+        "possible_causes": ["上呼吸道感染（疑似）"],
+        "red_flags": ["若呼吸困难请立即急诊"],
+        "disclaimer": "本建议仅供参考，不替代专业医疗诊断。",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, object]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    data = json.loads(response.body)
+    assert data["triage_level"] == "ROUTINE"
+    assert data["recommended_departments"] == ["全科", "内科"]
+    assert data["possible_causes"] == ["上呼吸道感染（疑似）"]
+    assert data["red_flags"] == ["若呼吸困难请立即急诊"]
+    assert data["disclaimer"] == "本建议仅供参考，不替代专业医疗诊断。"
 
 
 @pytest.mark.asyncio
