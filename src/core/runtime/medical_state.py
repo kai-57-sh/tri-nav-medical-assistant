@@ -4,18 +4,22 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class ConsultationState(BaseModel):
     """Consultation extraction outputs for the current turn."""
 
-    symptom_schema: dict[str, object] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid")
+
+    symptom_schema: dict[str, JsonValue] = Field(default_factory=dict)
     summary: str | None = None
 
 
 class TriageState(BaseModel):
     """Triage outputs for the current turn."""
+
+    model_config = ConfigDict(extra="forbid")
 
     triage_level: Literal["EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"] | None = None
     triage_reason: str | None = None
@@ -28,19 +32,25 @@ class TriageState(BaseModel):
 class EvidenceState(BaseModel):
     """Evidence retrieval outputs for the current turn."""
 
+    model_config = ConfigDict(extra="forbid")
+
     ncbi_query: str | None = None
-    evidence_selected: list[dict[str, object]] = Field(default_factory=list)
+    evidence_selected: list[dict[str, JsonValue]] = Field(default_factory=list)
 
 
 class NavigationState(BaseModel):
     """Navigation outputs for the current turn."""
 
-    navigation_result: dict[str, object] | None = None
-    weather_alert: dict[str, object] | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    navigation_result: dict[str, JsonValue] | None = None
+    weather_alert: dict[str, JsonValue] | None = None
 
 
 class ResponseState(BaseModel):
     """Response synthesis outputs for the current turn."""
+
+    model_config = ConfigDict(extra="forbid")
 
     status: str | None = None
     response: str | None = None
@@ -48,6 +58,8 @@ class ResponseState(BaseModel):
 
 class MedicalTurnState(BaseModel):
     """Canonical aggregate turn state shared across capabilities."""
+
+    model_config = ConfigDict(extra="forbid")
 
     consultation: ConsultationState = Field(default_factory=ConsultationState)
     triage: TriageState = Field(default_factory=TriageState)
