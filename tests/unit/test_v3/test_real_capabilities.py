@@ -165,6 +165,89 @@ async def test_triage_payload_preserves_merged_state_values_but_state_patch_is_n
 
 
 @pytest.mark.asyncio
+async def test_triage_invalid_merged_level_falls_back_to_urgent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_red_flag_detector(state):
+        return {**state}
+
+    async def fake_triage_classifier(state):
+        return {**state, "llm_triage_level": "ROUTINE"}
+
+    async def fake_triage_merger(state):
+        return {
+            **state,
+            "triage_level": "NOT_A_REAL_LEVEL",
+            "triage_reason": "merger emitted unknown level",
+            "recommended_departments": ["内科"],
+            "possible_causes": ["感染"],
+            "self_care_tips": ["休息"],
+            "red_flags": [],
+        }
+
+    monkeypatch.setattr("src.capabilities.triage.capability.red_flag_detector", fake_red_flag_detector)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_classifier", fake_triage_classifier)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_merger", fake_triage_merger)
+
+    context = _build_context()
+    triage = TriageCapability()
+    result = await triage.run(context, await triage.plan(context))
+
+    assert result.payload["triage_level"] == "URGENT"
+    assert result.state_patch["triage"]["triage_level"] == "URGENT"
+
+
+@pytest.mark.asyncio
+async def test_evidence_payload_is_preserved_while_state_patch_is_canonicalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mixed_evidence = [
+        {"pmid": "1", "title": "ok"},
+        "raw-text-item",
+        7,
+    ]
+
+    async def fake_ncbi_query_builder(state):
+        return {**state, "ncbi_query": "headache query"}
+
+    async def fake_ncbi_retriever_tool(state):
+        return {**state, "evidence_selected": mixed_evidence}
+
+    monkeypatch.setattr("src.capabilities.evidence.capability.ncbi_query_builder", fake_ncbi_query_builder)
+    monkeypatch.setattr("src.capabilities.evidence.capability.ncbi_retriever_tool", fake_ncbi_retriever_tool)
+
+    context = _build_context()
+    evidence = EvidenceCapability()
+    result = await evidence.run(context, await evidence.plan(context))
+
+    assert result.payload["evidence_selected"] == mixed_evidence
+    assert result.state_patch["evidence"]["evidence_selected"] == [{"pmid": "1", "title": "ok"}]
+
+
+@pytest.mark.asyncio
+async def test_navigation_payload_is_preserved_while_state_patch_requires_dict_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_navigator(state):
+        return {**state, "navigation_result": "raw_navigation_text"}
+
+    async def fake_weather_fetcher(state):
+        return {**state, "weather_alert": ["rain", "wind"]}
+
+    monkeypatch.setattr("src.capabilities.navigation.capability.navigator", fake_navigator)
+    monkeypatch.setattr("src.capabilities.navigation.capability.weather_fetcher", fake_weather_fetcher)
+
+    context = _build_context()
+    navigation = NavigationCapability()
+    result = await navigation.run(context, await navigation.plan(context))
+
+    assert result.payload["navigation_result"] == "raw_navigation_text"
+    assert result.payload["weather_alert"] == ["rain", "wind"]
+    assert result.state_patch["navigation"]["navigation_result"] is None
+    assert result.state_patch["navigation"]["weather_alert"] is None
+
+
+@pytest.mark.asyncio
 async def test_capabilities_are_no_longer_marked_as_v3_stub(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

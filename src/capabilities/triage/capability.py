@@ -190,7 +190,11 @@ class TriageCapability:
 
         merged_state = await triage_merger({**red_flag_state, **classifier_state})
         triage_level_raw = merged_state.get("triage_level")
-        triage_level = triage_level_raw if isinstance(triage_level_raw, str) else "URGENT"
+        triage_level = (
+            triage_level_raw
+            if isinstance(triage_level_raw, str) and triage_level_raw in _TRIAGE_LEVELS
+            else "URGENT"
+        )
         triage_reason_payload = merged_state.get("triage_reason", "")
         recommended_departments_payload = merged_state.get("recommended_departments", [])
         possible_causes_payload = merged_state.get("possible_causes", [])
