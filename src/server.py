@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from .config.settings import get_settings
 from .utils.logging_config import get_logger, setup_logging
 from .utils.metrics import external_service_health, get_content_type, get_metrics
@@ -19,6 +20,26 @@ settings = get_settings()
 log_file = os.getenv("TRINAV_LOG_FILE", "logs/trinav.log").strip() or None
 setup_logging(settings.log_level, log_file=log_file)
 logger = get_logger(__name__)
+
+
+class DependencyHealth(BaseModel):
+    """Readiness state for a single operational dependency."""
+
+    healthy: bool
+
+
+class ReadinessDependencies(BaseModel):
+    """Readiness state grouped by dependency name."""
+
+    redis: DependencyHealth
+    llm: DependencyHealth
+
+
+class ReadinessResponse(BaseModel):
+    """Structured readiness response published in OpenAPI."""
+
+    status: str
+    dependencies: ReadinessDependencies
 
 
 @asynccontextmanager
@@ -133,17 +154,24 @@ async def _get_dependency_readiness() -> dict[str, dict[str, bool]]:
     return dependencies
 
 
-@app.get("/health/ready")
-async def readiness_check(response: Response) -> dict[str, str | dict[str, dict[str, bool]]]:
+@app.get(
+    "/health/ready",
+    response_model=ReadinessResponse,
+    responses={503: {"model": ReadinessResponse, "description": "Dependencies degraded"}},
+)
+async def readiness_check(response: Response) -> ReadinessResponse:
     """Readiness endpoint for orchestration probes."""
     dependencies = await _get_dependency_readiness()
     ready = all(dependency["healthy"] for dependency in dependencies.values())
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
 
-    return {
-        "status": "ready" if ready else "degraded",
-        "dependencies": dependencies,
-    }
+    return ReadinessResponse(
+        status="ready" if ready else "degraded",
+        dependencies=ReadinessDependencies(
+            redis=DependencyHealth(**dependencies["redis"]),
+            llm=DependencyHealth(**dependencies["llm"]),
+        ),
+    )
 
 
 @app.get("/metrics")

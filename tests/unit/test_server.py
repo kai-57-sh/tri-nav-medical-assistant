@@ -143,6 +143,41 @@ class TestHealthEndpoint:
                     },
                 }
 
+    def test_readiness_openapi_schema_exposes_nested_dependency_health_contract(self):
+        """OpenAPI publishes the explicit nested readiness dependency health schema."""
+        openapi_schema = app.openapi()
+        response_schema = (
+            openapi_schema["paths"]["/health/ready"]["get"]["responses"]["200"]["content"][
+                "application/json"
+            ]["schema"]
+        )
+
+        if "$ref" in response_schema:
+            schema_name = response_schema["$ref"].rsplit("/", maxsplit=1)[-1]
+            response_schema = openapi_schema["components"]["schemas"][schema_name]
+
+        dependencies_schema = response_schema["properties"]["dependencies"]
+        if "$ref" in dependencies_schema:
+            schema_name = dependencies_schema["$ref"].rsplit("/", maxsplit=1)[-1]
+            dependencies_schema = openapi_schema["components"]["schemas"][schema_name]
+
+        redis_schema = dependencies_schema["properties"]["redis"]
+        if "$ref" in redis_schema:
+            schema_name = redis_schema["$ref"].rsplit("/", maxsplit=1)[-1]
+            redis_schema = openapi_schema["components"]["schemas"][schema_name]
+
+        llm_schema = dependencies_schema["properties"]["llm"]
+        if "$ref" in llm_schema:
+            schema_name = llm_schema["$ref"].rsplit("/", maxsplit=1)[-1]
+            llm_schema = openapi_schema["components"]["schemas"][schema_name]
+
+        assert response_schema["type"] == "object"
+        assert "dependencies" in response_schema["required"]
+        assert dependencies_schema["type"] == "object"
+        assert {"redis", "llm"} <= set(dependencies_schema["properties"])
+        assert redis_schema["properties"]["healthy"]["type"] == "boolean"
+        assert llm_schema["properties"]["healthy"]["type"] == "boolean"
+
 
 class TestMetricsEndpoint:
     """Tests for GET /metrics endpoint."""
