@@ -72,6 +72,18 @@ def test_medical_turn_state_rejects_non_json_values() -> None:
         )
 
 
+def test_medical_turn_state_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        MedicalTurnState(
+            consultation={"summary": "部位：头部；症状：头痛", "unknown_field": "unexpected"},
+        )
+
+    with pytest.raises(ValidationError):
+        MedicalTurnState(
+            unknown_top_level={"foo": "bar"},
+        )
+
+
 def test_capability_result_accepts_state_patch_for_known_sections() -> None:
     state_patch = {
         "consultation": {"summary": "部位：头部；症状：头痛"},
@@ -98,4 +110,19 @@ def test_capability_result_rejects_unknown_state_patch_section() -> None:
             success=True,
             payload={"status": "ok"},
             state_patch={"unknown_section": {"foo": "bar"}},
+        )
+
+
+def test_capability_result_rejects_unknown_field_inside_patch_section() -> None:
+    with pytest.raises(ValidationError):
+        CapabilityResult(
+            name="consultation",
+            success=True,
+            payload={"status": "ok"},
+            state_patch={
+                "consultation": {
+                    "summary": "部位：头部；症状：头痛",
+                    "unknown_field": "unexpected",
+                }
+            },
         )
