@@ -75,6 +75,86 @@ class TestHealthEndpoint:
             assert data["status"] == "degraded"
             assert data["redis"] == "unhealthy"
 
+    def test_readiness_check_returns_ready_when_dependencies_healthy(self, client):
+        """Readiness reports ready when Redis and LLM are healthy."""
+        with patch("src.services.redis_service.get_redis_service", new_callable=AsyncMock) as mock_get_redis:
+            mock_redis_service = Mock()
+            mock_redis_service.is_healthy = True
+            mock_get_redis.return_value = mock_redis_service
+
+            with patch("src.services.llm_service.get_llm_service") as mock_get_llm:
+                mock_llm_service = Mock()
+                mock_llm_service.is_healthy = True
+                mock_get_llm.return_value = mock_llm_service
+
+                response = client.get("/health/ready")
+                assert response.status_code == 200
+
+                data = response.json()
+                assert data == {
+                    "status": "ready",
+                    "dependencies": {
+                        "redis": True,
+                        "llm": True,
+                    },
+                }
+
+    def test_readiness_check_returns_degraded_when_dependency_unhealthy(self, client):
+        """Readiness degrades when a dependency is unhealthy."""
+        with patch("src.services.redis_service.get_redis_service", new_callable=AsyncMock) as mock_get_redis:
+            mock_redis_service = Mock()
+            mock_redis_service.is_healthy = False
+            mock_get_redis.return_value = mock_redis_service
+
+            with patch("src.services.llm_service.get_llm_service") as mock_get_llm:
+                mock_llm_service = Mock()
+                mock_llm_service.is_healthy = True
+                mock_get_llm.return_value = mock_llm_service
+
+                response = client.get("/health/ready")
+                assert response.status_code == 503
+
+                data = response.json()
+                assert data == {
+                    "status": "degraded",
+                    "dependencies": {
+                        "redis": False,
+                        "llm": True,
+                    },
+                }
+
+    def test_readiness_check_returns_degraded_when_dependency_unavailable(self, client):
+        """Readiness degrades when a dependency cannot be loaded."""
+        with patch("src.services.redis_service.get_redis_service", new_callable=AsyncMock) as mock_get_redis:
+            mock_get_redis.side_effect = RuntimeError("redis unavailable")
+
+            with patch("src.services.llm_service.get_llm_service") as mock_get_llm:
+                mock_get_llm.side_effect = RuntimeError("llm unavailable")
+
+                response = client.get("/health/ready")
+                assert response.status_code == 503
+
+                data = response.json()
+                assert data == {
+                    "status": "degraded",
+                    "dependencies": {
+                        "redis": False,
+                        "llm": False,
+                    },
+                }
+
+
+class TestMetricsEndpoint:
+    """Tests for GET /metrics endpoint."""
+
+    def test_metrics_endpoint_returns_prometheus_payload(self, client):
+        """Metrics endpoint exposes the app Prometheus registry."""
+        response = client.get("/metrics")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/plain")
+        assert "trinav_requests_total" in response.text
+
 
 class TestLifespan:
     """Tests for lifespan context manager."""

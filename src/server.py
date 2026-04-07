@@ -8,11 +8,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from .config.settings import get_settings
 from .utils.logging_config import get_logger, setup_logging
-from .utils.metrics import external_service_health
+from .utils.metrics import external_service_health, get_content_type, get_metrics
 
 # Get settings
 settings = get_settings()
@@ -106,6 +106,50 @@ async def health_check() -> dict[str, str]:
         "status": "healthy" if redis_healthy else "degraded",
         "redis": "healthy" if redis_healthy else "unhealthy",
     }
+
+
+async def _get_dependency_readiness() -> dict[str, bool]:
+    """Collect readiness state for operational dependencies."""
+    from .services.llm_service import get_llm_service
+    from .services.redis_service import get_redis_service
+
+    dependencies = {"redis": False, "llm": False}
+
+    try:
+        redis = await get_redis_service()
+        dependencies["redis"] = bool(redis and redis.is_healthy)
+    except Exception:
+        logger.warning("Redis readiness check failed", exc_info=True)
+
+    try:
+        llm = get_llm_service()
+        dependencies["llm"] = bool(llm and llm.is_healthy)
+    except Exception:
+        logger.warning("LLM readiness check failed", exc_info=True)
+
+    return dependencies
+
+
+@app.get("/health/ready")
+async def readiness_check(response: Response) -> dict[str, str | dict[str, bool]]:
+    """Readiness endpoint for orchestration probes."""
+    dependencies = await _get_dependency_readiness()
+    ready = all(dependencies.values())
+    response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return {
+        "status": "ready" if ready else "degraded",
+        "dependencies": dependencies,
+    }
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Expose Prometheus metrics for scraping."""
+    return Response(
+        content=get_metrics(),
+        headers={"Content-Type": get_content_type()},
+    )
 
 
 @app.get("/")
