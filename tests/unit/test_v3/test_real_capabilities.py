@@ -14,6 +14,7 @@ from src.capabilities import (
     TriageCapability,
 )
 from src.core.runtime.execution_context import ExecutionContext
+from src.core.runtime.medical_state import MedicalTurnState, TriageState
 
 SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
 
@@ -443,6 +444,46 @@ async def test_navigation_and_response_consume_metadata_triage_level(
     response = ResponseCapability()
     response_result = await response.run(context, await response.plan(context))
     assert "triage=SELF_CARE" in str(response_result.payload["response"])
+
+
+@pytest.mark.asyncio
+async def test_response_capability_uses_turn_state_instead_of_text_heuristics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_reasoning_verifier(state):
+        return {
+            **state,
+            "status": "final",
+            "final_response": (
+                f"triage={state.get('triage_level')};"
+                f"reason={state.get('triage_reason')};"
+                f"departments={state.get('recommended_departments')}"
+            ),
+        }
+
+    monkeypatch.setattr("src.capabilities.response.capability.reasoning_verifier", fake_reasoning_verifier)
+
+    context = ExecutionContext(
+        request_id="req-v3-real-4",
+        session_id="sess-v3-real-4",
+        text="轻微头痛",
+        metadata={},
+        turn_state=MedicalTurnState(
+            triage=TriageState(
+                triage_level="EMERGENCY",
+                triage_reason="突发神经系统症状需立即急诊评估",
+                recommended_departments=["急诊"],
+            )
+        ),
+    )
+
+    response = ResponseCapability()
+    response_result = await response.run(context, {"enabled": True})
+
+    response_text = str(response_result.payload["response"])
+    assert "triage=EMERGENCY" in response_text
+    assert "突发神经系统症状需立即急诊评估" in response_text
+    assert "急诊" in response_text
 
 
 @pytest.mark.asyncio

@@ -364,6 +364,128 @@ def test_assistant_v3_task_coordinator_propagates_triage_metadata_to_followup_ta
     assert "triage=SELF_CARE" in data["response"]
 
 
+def test_assistant_v3_task_coordinator_response_fields_prefer_turn_state(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V3 response body fields should be sourced from canonical turn_state when available."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.assistant_v2.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_builtin_plugins_enabled=False,
+            v3_plugin_trace_enabled=True,
+            v3_plugin_medical_footer_enabled=True,
+        ),
+    )
+
+    async def fake_consultation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="consultation",
+            success=True,
+            payload={"status": "ok", "summary": "mock summary"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_triage_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="triage",
+            success=True,
+            payload={
+                "status": "ok",
+                "triage_level": "ROUTINE",
+                "triage_reason": "payload says routine",
+                "recommended_departments": ["全科"],
+                "possible_causes": ["普通不适"],
+                "red_flags": ["payload red flag"],
+            },
+            provenance={"source": "test"},
+            errors=[],
+            state_patch={
+                "triage": {
+                    "triage_level": "EMERGENCY",
+                    "triage_reason": "state says emergency",
+                    "recommended_departments": ["急诊"],
+                    "possible_causes": ["蛛网膜下腔出血（疑似）"],
+                    "red_flags": ["突发剧烈头痛伴意识改变"],
+                }
+            },
+        )
+
+    async def fake_evidence_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="evidence",
+            success=True,
+            payload={"status": "ok", "evidence_signal": "evidence_pending", "evidence_selected": []},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_navigation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="navigation",
+            success=True,
+            payload={"status": "ok", "navigation_signal": "routing_unavailable"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_response_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="response",
+            success=True,
+            payload={"status": "final", "response": "state-aware response"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "src.capabilities.consultation.capability.ConsultationCapability.run",
+        fake_consultation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.triage.capability.TriageCapability.run",
+        fake_triage_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.evidence.capability.EvidenceCapability.run",
+        fake_evidence_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.navigation.capability.NavigationCapability.run",
+        fake_navigation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.response.capability.ResponseCapability.run",
+        fake_response_run,
+    )
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-turn-state-1",
+            "session_id": "sess-v3-turn-state-1",
+            "trace_id": "trace-v3-turn-state-1",
+            "text": "轻微头痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["triage_level"] == "EMERGENCY"
+    assert data["recommended_departments"] == ["急诊"]
+    assert data["possible_causes"] == ["蛛网膜下腔出血（疑似）"]
+    assert data["red_flags"] == ["突发剧烈头痛伴意识改变"]
+
+
 @pytest.mark.asyncio
 async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
     monkeypatch: pytest.MonkeyPatch,

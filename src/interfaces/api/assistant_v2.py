@@ -431,7 +431,10 @@ async def _invoke_v3_task_coordinator(
 
     triage_result = next((item for item in capability_results if item.name == "triage"), None)
     triage_level_raw = None if triage_result is None else triage_result.payload.get("triage_level")
-    triage_level = triage_level_raw if isinstance(triage_level_raw, str) else None
+    turn_state_triage = task_context.turn_state.triage
+    triage_level = turn_state_triage.triage_level
+    if triage_level is None:
+        triage_level = triage_level_raw if isinstance(triage_level_raw, str) else None
 
     runtime_events: list[dict[str, Any]] = [
         {
@@ -499,9 +502,21 @@ async def _invoke_v3_task_coordinator(
     }
     if triage_level is not None:
         body["triage_level"] = triage_level
-    body["recommended_departments"] = _recommended_departments_from_triage(triage_level)
-    body["possible_causes"] = _possible_causes_from_text(payload.text)
-    body["red_flags"] = _red_flags_from_triage(triage_level)
+    body["recommended_departments"] = (
+        list(turn_state_triage.recommended_departments)
+        if turn_state_triage.recommended_departments
+        else _recommended_departments_from_triage(triage_level)
+    )
+    body["possible_causes"] = (
+        list(turn_state_triage.possible_causes)
+        if turn_state_triage.possible_causes
+        else _possible_causes_from_text(payload.text)
+    )
+    body["red_flags"] = (
+        list(turn_state_triage.red_flags)
+        if turn_state_triage.red_flags
+        else _red_flags_from_triage(triage_level)
+    )
     body["disclaimer"] = "本建议仅供参考，不替代专业医疗诊断。"
 
     if primary.success and response_status in {"final", "need_more_info"}:

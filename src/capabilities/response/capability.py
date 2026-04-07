@@ -48,6 +48,28 @@ def _triage_level_from_context(context: ExecutionContext) -> str:
     return _heuristic_triage_level(context.text)
 
 
+def _normalize_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item.strip()]
+
+
+def _normalize_dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _triage_defaults(triage_level: str) -> tuple[list[str], str]:
+    if triage_level == "EMERGENCY":
+        return ["急诊"], "检测到高风险症状，建议立即急诊评估"
+    if triage_level == "URGENT":
+        return ["急诊", "内科"], "症状存在较高风险，建议尽快线下就医"
+    if triage_level == "SELF_CARE":
+        return ["全科"], "当前症状偏轻，可先居家观察并择期门诊复评"
+    return ["全科", "内科"], "当前信息未见明确紧急信号，建议常规门诊就诊"
+
+
 def _node_timeout_seconds(context: ExecutionContext) -> float:
     override = context.metadata.get("node_timeout_seconds")
     if isinstance(override, (int, float)) and float(override) > 0:
@@ -58,33 +80,70 @@ def _node_timeout_seconds(context: ExecutionContext) -> float:
 
 
 def _build_response_state(context: ExecutionContext) -> dict[str, Any]:
-    triage_level = _triage_level_from_context(context)
+    metadata = context.metadata if isinstance(context.metadata, dict) else {}
+    triage_state = context.turn_state.triage
+    evidence_state = context.turn_state.evidence
+    navigation_state = context.turn_state.navigation
+
+    triage_level = triage_state.triage_level or _triage_level_from_context(context)
     excerpt = context.text.strip()[:20]
-    if triage_level == "EMERGENCY":
-        departments = ["急诊"]
-        reason = "检测到高风险症状，建议立即急诊评估"
-    elif triage_level == "URGENT":
-        departments = ["急诊", "内科"]
-        reason = "症状存在较高风险，建议尽快线下就医"
-    elif triage_level == "SELF_CARE":
-        departments = ["全科"]
-        reason = "当前症状偏轻，可先居家观察并择期门诊复评"
-    else:
-        departments = ["全科", "内科"]
-        reason = "当前信息未见明确紧急信号，建议常规门诊就诊"
+    default_departments, default_reason = _triage_defaults(triage_level)
+    departments = (
+        _normalize_str_list(triage_state.recommended_departments)
+        or _normalize_str_list(metadata.get("recommended_departments"))
+        or default_departments
+    )
+    triage_reason = (
+        triage_state.triage_reason.strip()
+        if isinstance(triage_state.triage_reason, str) and triage_state.triage_reason.strip()
+        else (
+            metadata.get("triage_reason")
+            if isinstance(metadata.get("triage_reason"), str) and str(metadata.get("triage_reason")).strip()
+            else default_reason
+        )
+    )
+    possible_causes = (
+        _normalize_str_list(triage_state.possible_causes)
+        or _normalize_str_list(metadata.get("possible_causes"))
+        or ([f"{excerpt}相关不适（疑似）"] if excerpt else ["症状相关不适（疑似）"])
+    )
+    self_care_tips = (
+        _normalize_str_list(triage_state.self_care_tips)
+        or _normalize_str_list(metadata.get("self_care_tips"))
+        or ["记录症状变化并保持休息。"]
+    )
+    red_flags = (
+        _normalize_str_list(triage_state.red_flags)
+        or _normalize_str_list(metadata.get("red_flags"))
+        or ["若出现呼吸困难、胸痛、意识改变，请立即急诊。"]
+    )
+    navigation_result = (
+        navigation_state.navigation_result
+        if isinstance(navigation_state.navigation_result, dict)
+        else (metadata.get("navigation_result") if isinstance(metadata.get("navigation_result"), dict) else None)
+    )
+    weather_alert = (
+        navigation_state.weather_alert
+        if isinstance(navigation_state.weather_alert, dict)
+        else (metadata.get("weather_alert") if isinstance(metadata.get("weather_alert"), dict) else None)
+    )
+    evidence_selected = (
+        _normalize_dict_list(evidence_state.evidence_selected)
+        or _normalize_dict_list(metadata.get("evidence_selected"))
+    )
 
     return {
         "session_id": context.session_id,
         "need_clarify": False,
         "triage_level": triage_level,
-        "triage_reason": reason,
+        "triage_reason": triage_reason,
         "recommended_departments": departments,
-        "possible_causes": [f"{excerpt}相关不适（疑似）"] if excerpt else ["症状相关不适（疑似）"],
-        "self_care_tips": ["记录症状变化并保持休息。"],
-        "red_flags": ["若出现呼吸困难、胸痛、意识改变，请立即急诊。"],
-        "navigation_result": None,
-        "weather_alert": None,
-        "evidence_selected": [],
+        "possible_causes": possible_causes,
+        "self_care_tips": self_care_tips,
+        "red_flags": red_flags,
+        "navigation_result": navigation_result,
+        "weather_alert": weather_alert,
+        "evidence_selected": evidence_selected,
     }
 
 
