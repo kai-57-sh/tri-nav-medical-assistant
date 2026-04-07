@@ -46,9 +46,13 @@ def _legacy_session_id_for_public_session(session_id: str) -> str:
     """Return a stable UUID for legacy graph usage."""
 
     try:
-        return str(UUID(session_id))
+        parsed_uuid = UUID(session_id)
     except (ValueError, TypeError, AttributeError):
         return str(uuid5(_LEGACY_SESSION_NAMESPACE, session_id))
+    canonical_uuid = str(parsed_uuid)
+    if session_id == canonical_uuid:
+        return canonical_uuid
+    return str(uuid5(_LEGACY_SESSION_NAMESPACE, session_id))
 
 
 async def _invoke_legacy_fallback(payload: AssistantV2InvokePayload) -> dict[str, object]:

@@ -575,6 +575,74 @@ async def test_runtime_v3_legacy_fallback_non_uuid_public_session_uses_stable_in
 
 
 @pytest.mark.asyncio
+async def test_runtime_v3_legacy_session_ids_do_not_alias_uuid_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Canonical UUID text must not alias with alternate raw spellings of the same UUID."""
+
+    canonical_session_id = "12345678-1234-5678-9abc-def012345678"
+    uppercase_session_id = canonical_session_id.upper()
+    seen_legacy_session_ids: list[str] = []
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_invoke_chain(
+        session_id: str,
+        text: str,
+        image_base64: str | None = None,
+        gps_lat: float | None = None,
+        gps_lng: float | None = None,
+        config: object | None = None,
+    ) -> dict[str, object]:
+        _ = (text, image_base64, gps_lat, gps_lng, config)
+        seen_legacy_session_ids.append(session_id)
+        UUID(session_id)
+        return {
+            "status": "final",
+            "session_id": session_id,
+            "response": "legacy fallback response",
+        }
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.chains.triage_chain.invoke_chain", fake_invoke_chain)
+
+    canonical_response = await invoke_runtime_v3(
+        AssistantV2InvokePayload(
+            request_id="req-v3-fallback-canonical-1",
+            session_id=canonical_session_id,
+            trace_id="trace-v3-fallback-canonical-1",
+            text="持续低热三天",
+        )
+    )
+    uppercase_response = await invoke_runtime_v3(
+        AssistantV2InvokePayload(
+            request_id="req-v3-fallback-uppercase-1",
+            session_id=uppercase_session_id,
+            trace_id="trace-v3-fallback-uppercase-1",
+            text="持续低热三天",
+        )
+    )
+
+    assert canonical_response.status_code == 200
+    assert uppercase_response.status_code == 200
+    assert len(seen_legacy_session_ids) == 2
+    assert seen_legacy_session_ids[0] == canonical_session_id
+    assert seen_legacy_session_ids[1] != uppercase_session_id
+    assert seen_legacy_session_ids[1] != seen_legacy_session_ids[0]
+
+    canonical_data = json.loads(canonical_response.body)
+    uppercase_data = json.loads(uppercase_response.body)
+    assert canonical_data["session_id"] == canonical_session_id
+    assert uppercase_data["session_id"] == uppercase_session_id
+
+
+@pytest.mark.asyncio
 async def test_runtime_v3_returns_structured_error_when_settings_resolution_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
