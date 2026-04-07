@@ -230,6 +230,7 @@ class TestAssistantCompatRoutes:
                     "session_id": "sess-compat",
                     "trace_id": "trace-compat",
                     "text": "test",
+                    "metadata": {"foo": "bar"},
                 }
             },
             headers={"Content-Type": "application/json"},
@@ -237,6 +238,8 @@ class TestAssistantCompatRoutes:
 
         assert response.status_code == 200
         assert observed_payload is not None
+        assert observed_payload.metadata["runtime_mode"] == "v3"
+        assert observed_payload.metadata["foo"] == "bar"
         assert response.json() == {
             "output": {
                 "status": "final",
@@ -248,7 +251,7 @@ class TestAssistantCompatRoutes:
         }
 
     def test_stream_endpoint_exists_via_compat_adapter(self, client, monkeypatch):
-        """Compat stream should accept the input envelope and preserve SSE transport."""
+        """Compat stream should inject v3 runtime mode and preserve SSE transport."""
 
         observed_payload = None
 
@@ -271,6 +274,7 @@ class TestAssistantCompatRoutes:
                     "session_id": "sess-compat-stream",
                     "trace_id": "trace-compat-stream",
                     "text": "test stream",
+                    "metadata": {"foo": "bar"},
                 }
             },
             headers={"Content-Type": "application/json"},
@@ -278,6 +282,8 @@ class TestAssistantCompatRoutes:
 
         assert response.status_code == 200
         assert observed_payload is not None
+        assert observed_payload.metadata["runtime_mode"] == "v3"
+        assert observed_payload.metadata["foo"] == "bar"
         assert "text/event-stream" in response.headers.get("content-type", "")
         assert response.text == 'event: status\ndata: {"status":"start"}\n\ndata: [DONE]\n\n'
 

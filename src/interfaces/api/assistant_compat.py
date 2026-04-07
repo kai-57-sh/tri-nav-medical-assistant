@@ -21,6 +21,14 @@ class AssistantCompatEnvelope(BaseModel):
     input: AssistantV2InvokePayload
 
 
+def _with_v3_runtime_mode(payload: AssistantV2InvokePayload) -> AssistantV2InvokePayload:
+    """Mark compat payloads to follow the public v3 runtime path."""
+
+    metadata = dict(payload.metadata)
+    metadata["runtime_mode"] = "v3"
+    return payload.model_copy(update={"metadata": metadata})
+
+
 def _decode_json_response_body(response: JSONResponse) -> dict[str, Any]:
     """Decode the delegated JSONResponse body for compatibility wrapping."""
 
@@ -35,7 +43,7 @@ def _decode_json_response_body(response: JSONResponse) -> dict[str, Any]:
 async def invoke_assistant_compat(payload: AssistantCompatEnvelope) -> JSONResponse:
     """Delegate invoke calls to runtime v3 and preserve the legacy envelope."""
 
-    delegated = await invoke_runtime_v3(payload.input)
+    delegated = await invoke_runtime_v3(_with_v3_runtime_mode(payload.input))
     return JSONResponse(
         status_code=delegated.status_code,
         content={
@@ -49,4 +57,4 @@ async def invoke_assistant_compat(payload: AssistantCompatEnvelope) -> JSONRespo
 async def stream_assistant_compat(payload: AssistantCompatEnvelope) -> StreamingResponse:
     """Delegate stream calls to runtime v3 while keeping SSE transport behavior."""
 
-    return await stream_runtime_v3(payload.input)
+    return await stream_runtime_v3(_with_v3_runtime_mode(payload.input))
