@@ -175,6 +175,17 @@ def test_public_assistant_invoke_matches_v3_default_route_contract(
         "trace": {"request_id": "req-cutover-v3", "path": "v3_task_coordinator"},
     }
     observed_payloads: list[AssistantV2InvokePayload] = []
+    request_payload = {
+        "request_id": "req-cutover-v3",
+        "session_id": "sess-cutover-v3",
+        "trace_id": "trace-cutover-v3",
+        "text": "咳嗽三天",
+        "metadata": {
+            "runtime_mode": "legacy",
+            "client_channel": "web",
+            "correlation_hint": "parity-check",
+        },
+    }
 
     async def fake_shared_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
         observed_payloads.append(payload)
@@ -188,24 +199,12 @@ def test_public_assistant_invoke_matches_v3_default_route_contract(
 
     compat_response = client.post(
         "/assistant/invoke",
-        json={
-            "input": {
-                "request_id": "req-cutover-v3",
-                "session_id": "sess-cutover-v3",
-                "trace_id": "trace-cutover-v3",
-                "text": "咳嗽三天",
-            }
-        },
+        json={"input": request_payload},
         headers={"Content-Type": "application/json"},
     )
     v3_response = client.post(
         "/assistant/v3/invoke",
-        json={
-            "request_id": "req-cutover-v3",
-            "session_id": "sess-cutover-v3",
-            "trace_id": "trace-cutover-v3",
-            "text": "咳嗽三天",
-        },
+        json=request_payload,
         headers={"Content-Type": "application/json"},
     )
 
@@ -216,7 +215,12 @@ def test_public_assistant_invoke_matches_v3_default_route_contract(
     assert compat_body["output"] == v3_body
     assert compat_body["metadata"]["runtime_mode"] == "v3"
     assert len(observed_payloads) == 2
-    assert all(payload.metadata["runtime_mode"] == "v3" for payload in observed_payloads)
+    assert observed_payloads[0].model_dump() == observed_payloads[1].model_dump()
+    assert observed_payloads[0].metadata == {
+        "runtime_mode": "v3",
+        "client_channel": "web",
+        "correlation_hint": "parity-check",
+    }
 
 
 @pytest.mark.asyncio
