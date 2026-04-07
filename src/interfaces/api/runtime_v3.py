@@ -1,5 +1,6 @@
 """Shared runtime entrypoints for assistant v3."""
 
+from typing import Any
 from uuid import uuid4
 
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -7,8 +8,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from src.config.settings import get_settings
 from src.interfaces.api.assistant_v2 import (
     AssistantV2InvokePayload,
+    _enforce_response_safety,
     _error_response,
     _invoke_v3_task_coordinator,
+    _normalize_status,
+    _serialize_safety_result,
     stream_assistant_v2,
 )
 
@@ -49,6 +53,76 @@ async def _invoke_legacy_fallback(payload: AssistantV2InvokePayload) -> dict[str
     )
 
 
+def _normalized_legacy_fallback_response(
+    legacy_payload: dict[str, object],
+    *,
+    request_id: str,
+    session_id: str,
+    trace_id: str,
+    primary_error: Exception,
+) -> JSONResponse:
+    """Wrap legacy fallback output in the public v3 response envelope."""
+
+    runtime_status = legacy_payload.get("status")
+    response_status = _normalize_status(runtime_status)
+    safety_result = _enforce_response_safety(
+        status=response_status,
+        response_text=legacy_payload.get("response"),
+    )
+    resolved_session_id = legacy_payload.get("session_id")
+    output_session_id = resolved_session_id if isinstance(resolved_session_id, str) else session_id
+    response_text = legacy_payload.get("response")
+    error_message = legacy_payload.get("error_message")
+
+    runtime_events = [
+        {
+            "event_type": "runtime_fallback_triggered",
+            "request_id": request_id,
+            "session_id": output_session_id,
+            "data": {
+                "path": "legacy_fallback",
+                "primary_error_type": type(primary_error).__name__,
+            },
+        },
+        {
+            "event_type": "runtime_finished",
+            "request_id": request_id,
+            "session_id": output_session_id,
+            "data": {
+                "path": "legacy_fallback",
+                "success": response_status in {"final", "need_more_info"},
+            },
+        },
+    ]
+
+    body: dict[str, Any] = {
+        "status": response_status,
+        "session_id": output_session_id,
+        "trace_id": trace_id,
+        "response": response_text if isinstance(response_text, str) else "",
+        "safety": _serialize_safety_result(safety_result),
+        "runtime_events": runtime_events,
+        "provenance": {
+            "source": "legacy_graph",
+            "fallback": "v3_legacy",
+        },
+        "trace": {
+            "request_id": request_id,
+            "path": "legacy_fallback",
+            "primary_error_type": type(primary_error).__name__,
+            "primary_error_message": str(primary_error),
+        },
+    }
+
+    if response_status in {"final", "need_more_info"}:
+        return JSONResponse(status_code=200, content=body)
+
+    body["error_message"] = (
+        error_message if isinstance(error_message, str) and error_message else "assistant_v3_legacy_fallback_failed"
+    )
+    return JSONResponse(status_code=503, content=body)
+
+
 async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
     """Invoke v3 primary runtime and optionally fall back to legacy chain."""
 
@@ -68,7 +142,13 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
         return await _invoke_primary_v3(resolved_payload)
     except Exception as exc:
         if bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
-            return JSONResponse(status_code=200, content=await _invoke_legacy_fallback(resolved_payload))
+            return _normalized_legacy_fallback_response(
+                await _invoke_legacy_fallback(resolved_payload),
+                request_id=request_id,
+                session_id=session_id,
+                trace_id=trace_id,
+                primary_error=exc,
+            )
         return await _error_response(
             session_id=session_id,
             request_id=request_id,
