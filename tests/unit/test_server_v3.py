@@ -303,6 +303,61 @@ async def test_runtime_v3_falls_back_when_primary_returns_structured_error_respo
 
 
 @pytest.mark.asyncio
+async def test_runtime_v3_structured_primary_error_fallback_runs_once_when_legacy_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Structured-primary-error fallback should call legacy once and preserve primary details."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-from-response-raise-1",
+        session_id="sess-v3-fallback-from-response-raise-1",
+        trace_id="trace-v3-fallback-from-response-raise-1",
+        text="头痛发热",
+    )
+    fallback_calls = 0
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "session_id": "sess-v3-fallback-from-response-raise-1",
+                "trace_id": "trace-v3-fallback-from-response-raise-1",
+                "response": "",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "assistant_v3"},
+                "trace": {"error_type": "PrimaryReturnedError"},
+                "error_message": "primary returned structured error",
+            },
+        )
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        raise ValueError("legacy fallback failed")
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert fallback_calls == 1
+    assert response.status_code == 503
+    data = json.loads(response.body)
+    assert data["status"] == "error"
+    assert data["trace"]["error_type"] == "ValueError"
+    assert data["trace"]["error_message"] == "legacy fallback failed"
+    assert data["trace"]["primary_error_type"] == "PrimaryReturnedError"
+    assert data["trace"]["primary_error_message"] == "primary returned structured error"
+
+
+@pytest.mark.asyncio
 async def test_runtime_v3_legacy_fallback_applies_safe_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

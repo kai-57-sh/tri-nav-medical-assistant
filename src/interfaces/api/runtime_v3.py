@@ -243,20 +243,6 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
     try:
         settings = get_settings()
         primary_response = await _invoke_primary_v3(resolved_payload)
-        if settings is None or not bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
-            return primary_response
-        if not _should_fallback_from_primary_response(primary_response):
-            return primary_response
-        legacy_payload = await _invoke_legacy_fallback(resolved_payload)
-        primary_error_type, primary_error_message = _primary_failure_details_from_response(primary_response)
-        return await _normalized_legacy_fallback_response(
-            legacy_payload,
-            request_id=request_id,
-            session_id=session_id,
-            trace_id=trace_id,
-            primary_error_type=primary_error_type,
-            primary_error_message=primary_error_message,
-        )
     except Exception as exc:
         if settings is not None and bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
             try:
@@ -296,6 +282,38 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
                 "error_message": str(exc),
             },
         )
+
+    if settings is None or not bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
+        return primary_response
+    if not _should_fallback_from_primary_response(primary_response):
+        return primary_response
+
+    primary_error_type, primary_error_message = _primary_failure_details_from_response(primary_response)
+    try:
+        legacy_payload = await _invoke_legacy_fallback(resolved_payload)
+    except Exception as fallback_exc:
+        return await _error_response(
+            session_id=session_id,
+            request_id=request_id,
+            trace_id=trace_id,
+            message="assistant_v3_task_runtime_failed",
+            trace={
+                "request_id": request_id,
+                "error_stage": "task_orchestration",
+                "error_type": type(fallback_exc).__name__,
+                "error_message": str(fallback_exc),
+                "primary_error_type": primary_error_type,
+                "primary_error_message": primary_error_message,
+            },
+        )
+    return await _normalized_legacy_fallback_response(
+        legacy_payload,
+        request_id=request_id,
+        session_id=session_id,
+        trace_id=trace_id,
+        primary_error_type=primary_error_type,
+        primary_error_message=primary_error_message,
+    )
 
 
 async def stream_runtime_v3(payload: AssistantV2InvokePayload) -> StreamingResponse:
