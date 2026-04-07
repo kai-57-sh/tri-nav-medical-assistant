@@ -41,6 +41,82 @@ async def test_triage_emergency_like_text_not_constant_routine() -> None:
 
 
 @pytest.mark.asyncio
+async def test_consultation_and_triage_emit_state_patch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_clinical_extractor(state):
+        return {
+            **state,
+            "symptom_schema": {
+                "body_part": "头部",
+                "symptoms": ["头痛"],
+                "duration": "2天",
+                "severity": "轻微",
+                "accompanying_symptoms": [],
+                "onset": None,
+            },
+        }
+
+    async def fake_red_flag_detector(state):
+        return {
+            **state,
+            "rule_triage_level": None,
+            "red_flags_hit": [],
+            "recommended_departments": [],
+            "triage_reason": "",
+        }
+
+    async def fake_triage_classifier(state):
+        return {
+            **state,
+            "llm_triage_level": "ROUTINE",
+            "llm_triage_reason": "症状相对稳定，建议常规就诊",
+            "llm_recommended_departments": ["内科"],
+            "llm_possible_causes": ["上呼吸道感染（疑似）"],
+            "llm_self_care_tips": ["补水休息"],
+            "llm_red_flags": [],
+        }
+
+    async def fake_triage_merger(state):
+        return {
+            **state,
+            "triage_level": "ROUTINE",
+            "triage_source": "llm",
+            "recommended_departments": ["内科"],
+            "possible_causes": ["上呼吸道感染（疑似）"],
+            "self_care_tips": ["补水休息"],
+            "red_flags": [],
+            "triage_reason": "症状相对稳定，建议常规就诊",
+        }
+
+    monkeypatch.setattr(
+        "src.capabilities.consultation.capability.clinical_extractor",
+        fake_clinical_extractor,
+    )
+    monkeypatch.setattr("src.capabilities.triage.capability.red_flag_detector", fake_red_flag_detector)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_classifier", fake_triage_classifier)
+    monkeypatch.setattr("src.capabilities.triage.capability.triage_merger", fake_triage_merger)
+
+    context = _build_context()
+
+    consultation = ConsultationCapability()
+    consultation_result = await consultation.run(context, await consultation.plan(context))
+    assert consultation_result.state_patch["consultation"]["summary"] != ""
+    assert consultation_result.state_patch["consultation"]["symptom_schema"] != {}
+
+    triage = TriageCapability()
+    triage_result = await triage.run(context, await triage.plan(context))
+    assert triage_result.state_patch["triage"]["triage_level"] in {
+        "EMERGENCY",
+        "URGENT",
+        "ROUTINE",
+        "SELF_CARE",
+    }
+    assert triage_result.state_patch["triage"]["triage_reason"] != ""
+    assert triage_result.state_patch["triage"]["recommended_departments"] != []
+
+
+@pytest.mark.asyncio
 async def test_capabilities_are_no_longer_marked_as_v3_stub(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -129,6 +129,7 @@ class EvidenceCapability:
 
         evidence_selected_raw = retriever_result.get("evidence_selected")
         evidence_selected = evidence_selected_raw if isinstance(evidence_selected_raw, list) else []
+        evidence_selected_for_patch = [item for item in evidence_selected if isinstance(item, dict)]
 
         return CapabilityResult(
             name=self.name,
@@ -138,6 +139,12 @@ class EvidenceCapability:
                 "evidence_signal": "evidence_ready" if evidence_selected else "evidence_pending",
                 "query": query,
                 "evidence_selected": evidence_selected,
+            },
+            state_patch={
+                "evidence": {
+                    "ncbi_query": query,
+                    "evidence_selected": evidence_selected_for_patch,
+                }
             },
             provenance={
                 "source": _SOURCE,

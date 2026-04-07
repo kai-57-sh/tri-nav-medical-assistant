@@ -191,6 +191,28 @@ class TriageCapability:
         merged_state = await triage_merger({**red_flag_state, **classifier_state})
         triage_level_raw = merged_state.get("triage_level")
         triage_level = triage_level_raw if isinstance(triage_level_raw, str) else "URGENT"
+        triage_reason_raw = merged_state.get("triage_reason", "")
+        triage_reason = triage_reason_raw if isinstance(triage_reason_raw, str) else ""
+        recommended_departments_raw = merged_state.get("recommended_departments", [])
+        recommended_departments = (
+            [item for item in recommended_departments_raw if isinstance(item, str)]
+            if isinstance(recommended_departments_raw, list)
+            else []
+        )
+        possible_causes_raw = merged_state.get("possible_causes", [])
+        possible_causes = (
+            [item for item in possible_causes_raw if isinstance(item, str)]
+            if isinstance(possible_causes_raw, list)
+            else []
+        )
+        self_care_tips_raw = merged_state.get("self_care_tips", [])
+        self_care_tips = (
+            [item for item in self_care_tips_raw if isinstance(item, str)]
+            if isinstance(self_care_tips_raw, list)
+            else []
+        )
+        red_flags_raw = merged_state.get("red_flags", [])
+        red_flags = [item for item in red_flags_raw if isinstance(item, str)] if isinstance(red_flags_raw, list) else []
 
         return CapabilityResult(
             name=self.name,
@@ -199,11 +221,21 @@ class TriageCapability:
                 "status": "ok",
                 "triage_level": triage_level,
                 "triage_signal": "triage_completed",
-                "triage_reason": merged_state.get("triage_reason", ""),
-                "recommended_departments": merged_state.get("recommended_departments", []),
-                "possible_causes": merged_state.get("possible_causes", []),
-                "self_care_tips": merged_state.get("self_care_tips", []),
-                "red_flags": merged_state.get("red_flags", []),
+                "triage_reason": triage_reason,
+                "recommended_departments": recommended_departments,
+                "possible_causes": possible_causes,
+                "self_care_tips": self_care_tips,
+                "red_flags": red_flags,
+            },
+            state_patch={
+                "triage": {
+                    "triage_level": triage_level,
+                    "triage_reason": triage_reason,
+                    "recommended_departments": recommended_departments,
+                    "possible_causes": possible_causes,
+                    "self_care_tips": self_care_tips,
+                    "red_flags": red_flags,
+                }
             },
             provenance={
                 "source": _SOURCE,

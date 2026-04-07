@@ -132,6 +132,12 @@ class ConsultationCapability:
                 "summary": summary,
                 "consultation_signal": "intake_complete",
             },
+            state_patch={
+                "consultation": {
+                    "summary": summary,
+                    "symptom_schema": symptom_schema,
+                }
+            },
             provenance={
                 "source": _SOURCE,
                 "capability_version": self.version,
