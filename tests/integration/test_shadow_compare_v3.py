@@ -1,9 +1,9 @@
 """Integration tests for v1/v3 shadow compare helper."""
-
 from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 import src.interfaces.api.shadow_compare_v3 as shadow_compare_v3_api
@@ -148,6 +148,58 @@ async def test_compare_v1_v3_invalid_payload_forces_non_match() -> None:
     assert result["v1"]["invalid_payload"] is False
     assert result["v3"]["invalid_payload"] is True
     assert result["v3"]["error_type"] == "InvalidPayload"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_shadow_compare_helpers_keep_legacy_v1_and_default_v3_surfaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_run_v1 should stay on the legacy chain while _run_v3 follows assistant_v3 invoke."""
+
+    observed_v1: dict[str, object] = {}
+    observed_v3 = None
+
+    async def fake_invoke_chain(**kwargs: object) -> dict[str, object]:
+        nonlocal observed_v1
+        observed_v1 = kwargs
+        return {"status": "final", "triage_level": "ROUTINE"}
+
+    async def fake_invoke_assistant_v3(payload):  # type: ignore[no-untyped-def]
+        nonlocal observed_v3
+        observed_v3 = payload
+        return JSONResponse(
+            status_code=200,
+            content={"status": "need_more_info", "triage_level": "URGENT"},
+        )
+
+    monkeypatch.setattr("src.chains.triage_chain.invoke_chain", fake_invoke_chain)
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_assistant_v3", fake_invoke_assistant_v3)
+
+    v1_result = await shadow_compare_v3_api._run_v1({"session_id": "sess-shadow-v1", "text": "arm pain"})
+    v3_result = await shadow_compare_v3_api._run_v3(
+        {
+            "request_id": "req-shadow-v3",
+            "session_id": "sess-shadow-v3",
+            "trace_id": "trace-shadow-v3",
+            "text": "arm pain",
+        }
+    )
+
+    assert observed_v1 == {
+        "session_id": "sess-shadow-v1",
+        "text": "arm pain",
+        "image_base64": None,
+        "gps_lat": None,
+        "gps_lng": None,
+    }
+    assert v1_result == {"status": "final", "triage_level": "ROUTINE"}
+    assert observed_v3 is not None
+    assert observed_v3.request_id == "req-shadow-v3"
+    assert observed_v3.session_id == "sess-shadow-v3"
+    assert observed_v3.trace_id == "trace-shadow-v3"
+    assert observed_v3.text == "arm pain"
+    assert v3_result == {"status": "need_more_info", "triage_level": "URGENT"}
 
 
 @pytest.mark.integration

@@ -158,6 +158,78 @@ def test_assistant_v3_invoke_error_status_maps_to_503(
     UUID(data["trace_id"])
 
 
+def test_public_assistant_invoke_matches_v3_default_route_contract(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public compat invoke should expose the same default v3 result semantics."""
+
+    async def fake_compat_invoke(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "need_more_info",
+                "session_id": "sess-cutover-v3",
+                "trace_id": "trace-cutover-v3",
+                "response": "请补充持续时间",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [{"event_type": "runtime_finished"}],
+                "provenance": {"source": "assistant_v3"},
+                "trace": {"request_id": "req-cutover-v3", "path": "v3_task_coordinator"},
+            },
+        )
+
+    async def fake_v3_invoke(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "need_more_info",
+                "session_id": "sess-cutover-v3",
+                "trace_id": "trace-cutover-v3",
+                "response": "请补充持续时间",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [{"event_type": "runtime_finished"}],
+                "provenance": {"source": "assistant_v3"},
+                "trace": {"request_id": "req-cutover-v3", "path": "v3_task_coordinator"},
+            },
+        )
+
+    monkeypatch.setattr("src.interfaces.api.assistant_compat.invoke_runtime_v3", fake_compat_invoke)
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_runtime_v3", fake_v3_invoke)
+
+    compat_response = client.post(
+        "/assistant/invoke",
+        json={
+            "input": {
+                "request_id": "req-cutover-v3",
+                "session_id": "sess-cutover-v3",
+                "trace_id": "trace-cutover-v3",
+                "text": "咳嗽三天",
+            }
+        },
+        headers={"Content-Type": "application/json"},
+    )
+    v3_response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-cutover-v3",
+            "session_id": "sess-cutover-v3",
+            "trace_id": "trace-cutover-v3",
+            "text": "咳嗽三天",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert compat_response.status_code == 200
+    assert v3_response.status_code == 200
+    compat_body = compat_response.json()
+    v3_body = v3_response.json()
+    assert compat_body["output"]["status"] == v3_body["status"]
+    assert compat_body["output"]["response"] == v3_body["response"]
+    assert compat_body["output"]["trace"]["path"] == v3_body["trace"]["path"]
+    assert compat_body["metadata"]["runtime_mode"] == "v3"
+
+
 @pytest.mark.asyncio
 async def test_assistant_v3_invoke_delegates_to_runtime_v3(
     monkeypatch: pytest.MonkeyPatch,
