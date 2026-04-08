@@ -138,3 +138,39 @@ def test_check_v3_runtime_cli_calls_invoke_when_runtime_ready() -> None:
         "text": "持续头痛两天",
     }
     assert "OK invoke" in result.stdout
+
+
+def test_check_v3_runtime_cli_accepts_structured_503_from_invoke() -> None:
+    """Structured invoke failures should still count as a reachable runtime."""
+
+    with _serve_runtime_stub(
+        doctor_payload={
+            "status": "ok",
+            "runtime": {
+                "v3_runtime_enabled": True,
+                "v3_shadow_compare_enabled": False,
+            },
+            "dependencies": {"redis": {"healthy": True}},
+            "observability": {"sessions_with_events": 0},
+        },
+        invoke_status=503,
+        invoke_payload={
+            "status": "error",
+            "session_id": "smoke-v3",
+            "error_message": "downstream unavailable",
+        },
+    ) as (base_url, requests_seen):
+        result = subprocess.run(
+            [sys.executable, str(CLI_PATH), base_url],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert result.returncode == 0, result.stderr
+    invoke_requests = [
+        item for item in requests_seen if item["method"] == "POST" and item["path"] == "/assistant/v3/invoke"
+    ]
+    assert len(invoke_requests) == 1
+    assert "OK invoke http_status=503 status=error session_id=smoke-v3" in result.stdout
