@@ -196,3 +196,20 @@ def sample_image_base64():
         b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc`"
         b"\x00\x00\x00\x02\x00\x01\xe2!\xbc3\x00\x00\x00\x00IEND\xaeB`\x82"
     ).decode("ascii")
+
+
+def parse_sse_frames(body: str) -> list[dict]:
+    """Parse an SSE response body into structured frame dicts."""
+    assert body.endswith("\n\n")
+    raw_frames = [frame for frame in body.split("\n\n") if frame]
+    parsed: list[dict] = []
+    for frame in raw_frames:
+        lines = frame.split("\n")
+        entry: dict = {"raw": frame, "lines": lines}
+        for line in lines:
+            if line.startswith("event: "):
+                entry["event"] = line.removeprefix("event: ")
+            if line.startswith("data: "):
+                entry["data"] = line.removeprefix("data: ")
+        parsed.append(entry)
+    return parsed

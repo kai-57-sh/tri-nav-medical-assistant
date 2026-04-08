@@ -16,6 +16,8 @@ from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload
 from src.interfaces.api.assistant_v3 import stream_assistant_v3
 from src.server import app
 
+from tests.conftest import parse_sse_frames
+
 
 @pytest.fixture
 def client() -> TestClient:
@@ -30,22 +32,6 @@ def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
         "src.interfaces.api.runtime_v3.get_settings",
         lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
     )
-
-
-def _parse_sse_frames(body: str) -> list[dict[str, Any]]:
-    assert body.endswith("\n\n")
-    raw_frames = [frame for frame in body.split("\n\n") if frame]
-    parsed: list[dict[str, Any]] = []
-    for frame in raw_frames:
-        lines = frame.split("\n")
-        entry: dict[str, Any] = {"raw": frame, "lines": lines}
-        for line in lines:
-            if line.startswith("event: "):
-                entry["event"] = line.removeprefix("event: ")
-            if line.startswith("data: "):
-                entry["data"] = line.removeprefix("data: ")
-        parsed.append(entry)
-    return parsed
 
 
 def test_assistant_v3_stream_returns_ordered_sse_frames(
@@ -97,7 +83,7 @@ def test_assistant_v3_stream_returns_ordered_sse_frames(
     assert "text/event-stream" in response.headers.get("content-type", "")
     assert response.text.count("data: [DONE]") == 1
 
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"
@@ -153,7 +139,7 @@ def test_assistant_v3_stream_error_final_still_uses_http_200(
     )
 
     assert response.status_code == 200
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"
@@ -198,7 +184,7 @@ def test_assistant_v3_stream_returns_final_error_when_runtime_flag_disabled(
     )
 
     assert response.status_code == 200
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     final_payload = json.loads(frames[1]["data"])
     assert final_payload["status"] == "error"
@@ -310,7 +296,7 @@ def test_stream_primary_structured_error_converted_to_sse_final_error(
     )
 
     assert response.status_code == 200
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"
@@ -368,7 +354,7 @@ def test_stream_legacy_fallback_success_converted_to_sse_final(
     )
 
     assert response.status_code == 200
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"
@@ -424,7 +410,7 @@ def test_stream_does_not_call_stream_assistant_v2_when_runtime_enabled(
 
     assert response.status_code == 200
     assert invoke_calls == 1
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     final_payload = json.loads(frames[1]["data"])
     assert final_payload["response"] == "direct v3"
 
@@ -477,7 +463,7 @@ def test_stream_fallback_disabled_returns_error_when_primary_fails(
     )
 
     assert response.status_code == 200
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     final_payload = json.loads(frames[1]["data"])
     assert final_payload["status"] == "error"

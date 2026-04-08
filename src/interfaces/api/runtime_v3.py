@@ -386,7 +386,7 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
 async def stream_runtime_v3(payload: AssistantV2InvokePayload) -> StreamingResponse:
     """Stream v3 runtime results as SSE, sharing the same primary/fallback/disabled logic as invoke_runtime_v3."""
 
-    request_id, session_id, trace_id, _ = _resolve_payload_ids(payload)
+    request_id, session_id, trace_id, resolved_payload = _resolve_payload_ids(payload)
 
     try:
         settings = get_settings()
@@ -412,7 +412,7 @@ async def stream_runtime_v3(payload: AssistantV2InvokePayload) -> StreamingRespo
         )
         final_payload: dict[str, Any] | None = None
         try:
-            invoke_response = await invoke_runtime_v3(payload)
+            invoke_response = await invoke_runtime_v3(resolved_payload)
             final_payload = _decoded_response_body(invoke_response)
         except Exception as exc:
             final_payload = _stream_error_payload(
