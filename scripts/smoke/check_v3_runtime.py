@@ -18,6 +18,22 @@ def _fetch_json(url: str, timeout: float) -> tuple[int, dict[str, Any]]:
         return status, payload
 
 
+def _post_json(url: str, payload: dict[str, Any], timeout: float) -> tuple[int, dict[str, Any]]:
+    encoded_payload = json.dumps(payload).encode("utf-8")
+    http_request = request.Request(
+        url,
+        data=encoded_payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with request.urlopen(http_request, timeout=timeout) as response:
+        status = getattr(response, "status", response.getcode())
+        decoded = json.loads(response.read().decode("utf-8"))
+        if not isinstance(decoded, dict):
+            raise ValueError(f"Expected JSON object from {url}, got {type(decoded).__name__}")
+        return status, decoded
+
+
 def _expect(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
@@ -31,12 +47,17 @@ def main(argv: list[str]) -> int:
     base_url = (argv[1] if len(argv) == 2 else "http://127.0.0.1:8000").rstrip("/")
     timeout = 5.0
     doctor_url = f"{base_url}/assistant/v3/runtime/doctor"
+    invoke_url = f"{base_url}/assistant/v3/invoke"
     health_url = f"{base_url}/health"
+    smoke_payload = {
+        "session_id": "smoke-v3",
+        "text": "持续头痛两天",
+    }
 
     try:
         status, doctor = _fetch_json(doctor_url, timeout)
         _expect(status == 200, f"Expected 200 from {doctor_url}, got {status}")
-        _expect(isinstance(doctor.get("status"), str), "doctor.status must be a string")
+        _expect(doctor.get("status") == "ok", "doctor.status must be 'ok'")
 
         runtime = doctor.get("runtime")
         _expect(isinstance(runtime, dict), "doctor.runtime must be an object")
@@ -44,6 +65,7 @@ def main(argv: list[str]) -> int:
             isinstance(runtime.get("v3_runtime_enabled"), bool),
             "doctor.runtime.v3_runtime_enabled must be a boolean",
         )
+        _expect(runtime.get("v3_runtime_enabled") is True, "v3 runtime must be enabled")
         _expect(
             isinstance(runtime.get("v3_shadow_compare_enabled"), bool),
             "doctor.runtime.v3_shadow_compare_enabled must be a boolean",
@@ -63,6 +85,17 @@ def main(argv: list[str]) -> int:
             observability is None or isinstance(observability, dict),
             "doctor.observability must be an object when present",
         )
+
+        invoke_status, invoke = _post_json(invoke_url, smoke_payload, timeout=15.0)
+        _expect(
+            invoke_status in {200, 503},
+            f"Expected 200 or 503 from {invoke_url}, got {invoke_status}",
+        )
+        _expect(isinstance(invoke.get("status"), str), "invoke.status must be a string")
+        _expect(
+            isinstance(invoke.get("session_id"), str) and invoke.get("session_id"),
+            "invoke.session_id must be a non-empty string",
+        )
     except (AssertionError, ValueError, json.JSONDecodeError) as exc:
         print(f"FAIL {doctor_url}: {exc}", file=sys.stderr)
         return 1
@@ -76,6 +109,12 @@ def main(argv: list[str]) -> int:
         f" v3_runtime_enabled={doctor['runtime']['v3_runtime_enabled']}"
         f" v3_shadow_compare_enabled={doctor['runtime']['v3_shadow_compare_enabled']}"
         f" redis_healthy={doctor['dependencies']['redis']['healthy']}"
+    )
+    print(
+        "OK invoke"
+        f" http_status={invoke_status}"
+        f" status={invoke['status']}"
+        f" session_id={invoke['session_id']}"
     )
 
     try:
