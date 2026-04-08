@@ -17,7 +17,7 @@ A LangChain-based medical triage system that helps users understand symptom urge
 
 ```bash
 # Clone repository
-cd /AII-wuqi/AII_home/fq_775/TriNav
+cd TriNav
 
 # Create virtual environment
 python3.11 -m venv .venv
@@ -154,15 +154,44 @@ curl -X POST http://localhost:8000/assistant/invoke \
 **Response** (excerpt):
 ```json
 {
-  "status": "final",
-  "triage_level": "ROUTINE",
-  "recommended_departments": ["皮肤科"],
-  "possible_causes": [
-    "过敏相关皮疹（疑似）",
-    "接触性皮炎（疑似）"
-  ],
-  "red_flags": ["如果出现呼吸困难/脸唇肿胀，请立刻急诊"],
-  "disclaimer": "本建议仅供参考，不替代专业医疗诊断"
+  "output": {
+    "status": "final",
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "trace_id": "trace-routine-1",
+    "response": "根据您描述的手臂红疹症状，建议预约皮肤科门诊进一步评估。",
+    "safety": {
+      "risk_level": "low",
+      "matched_rules": []
+    },
+    "runtime_events": [
+      {
+        "event_type": "runtime_finished",
+        "data": {
+          "path": "v3_task_coordinator",
+          "success": true
+        }
+      }
+    ],
+    "provenance": {
+      "source": "v3_medical_pipeline",
+      "capability_version": "v3"
+    },
+    "trace": {
+      "request_id": "req-routine-1",
+      "path": "v3_task_coordinator"
+    },
+    "triage_level": "ROUTINE",
+    "recommended_departments": ["皮肤科"],
+    "possible_causes": [
+      "过敏相关皮疹（疑似）",
+      "接触性皮炎（疑似）"
+    ],
+    "red_flags": ["如果出现呼吸困难/脸唇肿胀，请立刻急诊"],
+    "disclaimer": "本建议仅供参考，不替代专业医疗诊断。"
+  },
+  "metadata": {
+    "runtime_mode": "v3"
+  }
 }
 ```
 
@@ -181,11 +210,10 @@ curl -X POST http://localhost:8000/assistant/invoke \
   }'
 ```
 
-**Response includes**:
-- 3 hospital recommendations (3A prioritized)
-- Route plan to top hospital
-- Weather alert from Open-Meteo (if available, no API key required)
-> Note: navigation uses Amap and primarily covers mainland China. Non-China coordinates may return no hospitals.
+**Notes**:
+- Public `POST /assistant/invoke` accepts `gps_lat` / `gps_lng` and keeps the same compat envelope.
+- Location input can influence hospital search and route planning inside the runtime when Amap integrations are available.
+- The public compat response remains triage-focused and does not currently expose a standalone `navigation` object.
 
 ---
 

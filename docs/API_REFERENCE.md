@@ -145,7 +145,7 @@ V4_GATE_MAX_P95_MS=6000
 
 **端点**: `POST /assistant/invoke`
 
-**描述**: 执行医疗分诊评估，返回分诊等级、推荐科室、医院导航等信息。该端点对外保持兼容包装，内部默认走 v3 runtime。
+**描述**: 执行医疗分诊评估，返回兼容包装下的分诊结果、运行追踪信息和稳定的公开字段集合。该端点对外保持兼容包装，内部默认走 v3 runtime。
 
 **兼容请求包装**：请求体必须包含 `input` 对象，实际参数放在 `input` 内。这一公开 envelope 保持不变，用于兼容既有客户端。
 
@@ -159,7 +159,7 @@ V4_GATE_MAX_P95_MS=6000
 | `gps_lat` | number | ❌ | 纬度 | -90 到 90 |
 | `gps_lng` | number | ❌ | 经度 | -180 到 180 |
 
-**注意**: 推荐使用 `gps_lat` / `gps_lng`。为了兼容旧客户端，`lat` / `lng` 仍可用，但将逐步弃用。
+**注意**: 公开接口仅支持 `gps_lat` / `gps_lng`。未定义的别名字段会被忽略，因此客户端不应再发送 `lat` / `lng`。
 
 #### 4.1.2 请求示例
 
@@ -208,7 +208,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
   }'
 ```
 
-> **注意**：导航基于高德地图，主要覆盖中国境内；海外坐标可能返回空的医院列表或 `navigation: null`。
+> **注意**：导航能力基于高德地图，主要覆盖中国境内；海外坐标可能返回空的医院推荐结果。公开 compat 响应当前不会额外展开 `navigation` 对象。
 
 #### 4.1.3 响应参数
 
@@ -225,22 +225,18 @@ curl -X POST http://localhost:8000/assistant/invoke \
 |:-----|:------|:-----|
 | `status` | string | 处理状态：`final` / `need_more_info` / `error` |
 | `session_id` | string | 会话 ID |
-| `triage_level` | string | 分诊等级 |
-| `triage_reason` | string | 分诊原因说明 |
-| `triage_source` | string | 来源：`rule_engine` / `llm` / `merged` |
-| `recommended_departments` | string[] | 推荐科室列表 |
-| `possible_causes` | string[] | 可能原因（含限定词） |
-| `self_care_tips` | string[] | 自我护理建议 |
-| `red_flags` | string[] | 警示信号 |
-| `clarify_questions` | string[] | 澄清问题（需更多信息时） |
-| `navigation` | object | 导航信息（提供 GPS 时） |
-| `evidence` | object[] | 医学证据（NCBI 检索结果） |
-| `weather_alert` | object | 天气预警（提供 GPS 时，数据来自 Open-Meteo，无需额外 API Key） |
-| `visual_findings` | object | 视觉发现（提供图片时） |
+| `trace_id` | string | 请求追踪 ID |
 | `response` | string | 自然语言响应 |
-| `disclaimer` | string | 免责声明 |
-| `turn_count` | integer | 对话轮次 |
-| `error_message` | string | 错误信息（仅错误时） |
+| `safety` | object | 输出安全结果，包含 `risk_level` 与 `matched_rules` |
+| `runtime_events` | object[] | 运行时事件列表 |
+| `provenance` | object | 结果来源与能力版本信息 |
+| `trace` | object | 执行路径、request_id 等追踪信息 |
+| `triage_level` | string | 分诊等级（可选） |
+| `recommended_departments` | string[] | 推荐科室列表（可选） |
+| `possible_causes` | string[] | 可能原因（含限定词，可选） |
+| `red_flags` | string[] | 警示信号（可选） |
+| `disclaimer` | string | 免责声明（可选） |
+| `error_message` | string | 错误信息（仅 `status=error` 时出现） |
 
 #### 4.1.4 响应示例
 
@@ -251,50 +247,40 @@ curl -X POST http://localhost:8000/assistant/invoke \
   "output": {
     "status": "final",
     "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "trace_id": "trace-routine-1",
+    "response": "根据您描述的手臂红疹症状，建议预约皮肤科门诊进一步评估。",
+    "safety": {
+      "risk_level": "low",
+      "matched_rules": []
+    },
+    "runtime_events": [
+      {
+        "event_type": "runtime_finished",
+        "request_id": "req-routine-1",
+        "session_id": "550e8400-e29b-41d4-a716-446655440000",
+        "data": {
+          "path": "v3_task_coordinator",
+          "success": true
+        }
+      }
+    ],
+    "provenance": {
+      "source": "v3_medical_pipeline",
+      "capability_version": "v3"
+    },
+    "trace": {
+      "request_id": "req-routine-1",
+      "path": "v3_task_coordinator"
+    },
     "triage_level": "ROUTINE",
-    "triage_reason": "症状轻微，无紧急征象",
-    "triage_source": "llm",
     "recommended_departments": ["皮肤科"],
     "possible_causes": [
       "过敏相关皮疹（疑似）",
       "接触性皮炎（疑似）"
     ],
-    "self_care_tips": [
-      "避免抓挠患处",
-      "保持患处清洁干燥",
-      "记录皮疹变化"
-    ],
     "red_flags": [
       "如果出现呼吸困难/脸唇肿胀/全身迅速扩散，请立刻急诊"
     ],
-    "clarify_questions": [],
-    "response": "根据您描述的手臂红疹症状，建议您前往皮肤科就诊。症状轻微，可以预约常规门诊...",
-    "disclaimer": "本建议仅供参考，不替代专业医疗诊断。",
-    "turn_count": 1
-  },
-  "metadata": {
-    "runtime_mode": "v3"
-  }
-}
-```
-
-**急诊响应 (EMERGENCY):**
-
-```json
-{
-  "output": {
-    "status": "final",
-    "session_id": "550e8400-e29b-41d4-a716-446655440001",
-    "triage_level": "EMERGENCY",
-    "triage_reason": "胸闷伴呼吸困难，触发红旗规则 RF_CHEST_TIGHTNESS_PLUS_DIFFICULTY",
-    "triage_source": "rule_engine",
-    "recommended_departments": ["急诊"],
-    "possible_causes": [],
-    "self_care_tips": [],
-    "red_flags": [
-      "胸闷伴呼吸困难，建议立即急诊/呼叫急救"
-    ],
-    "response": "检测到您的症状存在紧急情况。请立即前往急诊或呼叫急救车（120）。",
     "disclaimer": "本建议仅供参考，不替代专业医疗诊断。"
   },
   "metadata": {
@@ -310,14 +296,32 @@ curl -X POST http://localhost:8000/assistant/invoke \
   "output": {
     "status": "need_more_info",
     "session_id": "550e8400-e29b-41d4-a716-446655440002",
-    "clarify_questions": [
-      "疼痛的具体部位在哪里？（如上腹部、下腹部、左/右侧）",
-      "疼痛持续多长时间了？",
-      "是否伴有其他症状？（如发热、呕吐、腹泻、便血）"
+    "trace_id": "trace-more-info-1",
+    "response": "为了更准确地判断您的状况，需要补充更多信息，请描述疼痛部位、持续时间以及是否伴随发热或呕吐。",
+    "safety": {
+      "risk_level": "low",
+      "matched_rules": []
+    },
+    "runtime_events": [
+      {
+        "event_type": "runtime_finished",
+        "request_id": "req-more-info-1",
+        "session_id": "550e8400-e29b-41d4-a716-446655440002",
+        "data": {
+          "path": "v3_task_coordinator",
+          "success": true
+        }
+      }
     ],
-    "response": "为了更准确地判断您的状况，需要了解一些额外信息。请回答以下问题...",
-    "disclaimer": "本建议仅供参考，不替代专业医疗诊断。",
-    "turn_count": 1
+    "provenance": {
+      "source": "v3_medical_pipeline",
+      "capability_version": "v3"
+    },
+    "trace": {
+      "request_id": "req-more-info-1",
+      "path": "v3_task_coordinator"
+    },
+    "disclaimer": "本建议仅供参考，不替代专业医疗诊断。"
   },
   "metadata": {
     "runtime_mode": "v3"
@@ -325,68 +329,43 @@ curl -X POST http://localhost:8000/assistant/invoke \
 }
 ```
 
-**带导航的响应:**
+**带定位输入的响应:**
 
 ```json
 {
   "output": {
     "status": "final",
     "session_id": "550e8400-e29b-41d4-a716-446655440003",
-    "triage_level": "URGENT",
-    "triage_reason": "头痛发热，建议尽快就医",
-    "triage_source": "llm",
-    "recommended_departments": ["神经内科", "发热门诊"],
-    "response": "建议尽快前往医院就诊，并注意途中安全。",
-    "disclaimer": "本建议仅供参考，不替代专业医疗诊断。",
-    "navigation": {
-      "radius_km": 10,
-      "hospitals": [
-        {
-          "rank": 1,
-          "name": "北京协和医院",
-          "is_3a": true,
-          "address": "北京市东城区帅府园1号",
-          "distance_m": 1200,
-          "location": {"lat": 39.914, "lng": 116.417},
-          "phone": "010-69156699",
-          "reason": "三甲综合医院，距离较近，急诊/门诊齐全"
-        },
-        {
-          "rank": 2,
-          "name": "中日友好医院",
-          "is_3a": true,
-          "address": "北京市朝阳区樱花园东街",
-          "distance_m": 3500,
-          "location": {"lat": 39.979, "lng": 116.447},
-          "phone": "010-84205566",
-          "reason": "三甲综合医院，口碑较好"
-        },
-        {
-          "rank": 3,
-          "name": "朝阳医院",
-          "is_3a": false,
-          "address": "北京市朝阳区工人体育场南路",
-          "distance_m": 900,
-          "location": {"lat": 39.921, "lng": 116.457},
-          "phone": "010-85231000",
-          "reason": "距离更近，可作为备选"
-        }
-      ],
-      "route_plan": {
-        "to_hospital_rank": 1,
-        "mode": "driving",
-        "distance_km": 1.2,
-        "eta_min": 15,
-        "summary": "大约15分钟车程，约1.2公里"
-      }
+    "trace_id": "trace-location-1",
+    "response": "结合您提供的位置与症状，建议尽快前往线下医院评估。",
+    "safety": {
+      "risk_level": "low",
+      "matched_rules": []
     },
-    "weather_alert": {
-      "condition": "小雨",
-      "temp_c": 8,
-      "humidity": 75,
-      "wind_speed_kmh": 15,
-      "tip": "下雨路滑，出行请注意安全，建议携带雨具"
-    }
+    "runtime_events": [
+      {
+        "event_type": "runtime_finished",
+        "request_id": "req-location-1",
+        "session_id": "550e8400-e29b-41d4-a716-446655440003",
+        "data": {
+          "path": "v3_task_coordinator",
+          "success": true
+        }
+      }
+    ],
+    "provenance": {
+      "source": "v3_medical_pipeline",
+      "capability_version": "v3"
+    },
+    "trace": {
+      "request_id": "req-location-1",
+      "path": "v3_task_coordinator"
+    },
+    "triage_level": "URGENT",
+    "recommended_departments": ["神经内科", "发热门诊"],
+    "possible_causes": ["急性感染相关不适（疑似）"],
+    "red_flags": ["若出现意识改变或持续高热，请立即急诊。"],
+    "disclaimer": "本建议仅供参考，不替代专业医疗诊断。"
   },
   "metadata": {
     "runtime_mode": "v3"
@@ -400,7 +379,22 @@ curl -X POST http://localhost:8000/assistant/invoke \
 {
   "output": {
     "status": "error",
-    "error_message": "输入验证失败: 缺少症状信息，无法进行分诊评估"
+    "session_id": "550e8400-e29b-41d4-a716-446655440004",
+    "trace_id": "trace-error-1",
+    "response": "",
+    "safety": {
+      "risk_level": "low",
+      "matched_rules": []
+    },
+    "runtime_events": [],
+    "provenance": {
+      "source": "assistant_v2"
+    },
+    "trace": {
+      "request_id": "req-error-1",
+      "error_stage": "task_orchestration"
+    },
+    "error_message": "assistant_v3_task_runtime_failed"
   },
   "metadata": {
     "runtime_mode": "v3"
@@ -554,11 +548,12 @@ curl http://localhost:8000/
 
 | 状态码 | 说明 | 示例场景 |
 |:------|:-----|:---------|
-| 200 | 成功 | 请求正常处理 |
-| 400 | 请求参数错误 | 缺少必需参数、参数格式错误 |
-| 500 | 服务器错误 | 内部处理异常 |
+| 200 | 请求正常处理，或 `/assistant/invoke` 返回结构化业务错误 | 成功响应；公开 compat 路由上的 `output.status=error` |
+| 422 | 请求参数校验失败 | 缺少 `input` 包装、字段类型错误 |
+| 503 | 运行时结构化失败 | `/assistant/v3/invoke` 主执行路径与 fallback 均失败 |
+| 500 | 未捕获的服务器异常 | 中间件、部署或未包装异常 |
 
-> **说明**：LangServe 业务校验错误通常仍返回 200，并通过 `output.status=error` + `output.error_message` 表达错误。
+> **说明**：`POST /assistant/invoke` 是公开 compat 路由。即使 runtime 返回结构化失败，它通常仍返回 HTTP 200，并通过 `output.status=error` 与 `output.error_message` 让客户端判定业务失败。
 
 ### 6.2 业务错误码
 
@@ -704,19 +699,15 @@ if __name__ == "__main__":
     print(f"分诊等级: {result['triage_level']}")
     print(f"推荐科室: {result['recommended_departments']}")
 
-    # 带导航分诊
+    # 带定位输入的分诊
     result = client.triage(
         text="头痛发烧",
         gps_lat=39.9042,
         gps_lng=116.4074
     )
 
-    if result.get("navigation"):
-        print("推荐医院:")
-        for hospital in result['navigation']['hospitals']:
-            print(f"  {hospital['rank']}. {hospital['name']}")
-            print(f"     {hospital['address']}")
-            print(f"     距离: {hospital['distance_m']}米")
+    print(f"自然语言答复: {result['response']}")
+    print(f"执行路径: {result['trace']['path']}")
 ```
 
 ### 8.2 JavaScript 客户端
@@ -798,21 +789,15 @@ class TriNavClient {
   console.log('分诊等级:', result.triage_level);
   console.log('推荐科室:', result.recommended_departments);
 
-  // 带导航分诊
+  // 带定位输入的分诊
   const navResult = await client.triage({
     text: '头痛发烧',
     gpsLat: 39.9042,
     gpsLng: 116.4074
   });
 
-  if (navResult.navigation) {
-    console.log('推荐医院:');
-    navResult.navigation.hospitals.forEach(hospital => {
-      console.log(`  ${hospital.rank}. ${hospital.name}`);
-      console.log(`     ${hospital.address}`);
-      console.log(`     距离: ${hospital.distance_m}米`);
-    });
-  }
+  console.log('自然语言答复:', navResult.response);
+  console.log('执行路径:', navResult.trace.path);
 })();
 ```
 
@@ -876,9 +861,10 @@ curl -s -X POST $BASE_URL/assistant/invoke \
 |:----------|:-------------|:-----|
 | 200 | `final` | 分诊完成 |
 | 200 | `need_more_info` | 需要更多信息 |
-| 200 | `error` | 处理失败 |
-| 400 | - | 请求参数错误 |
-| 500 | - | 服务器内部错误 |
+| 200 | `error` | 公开 `/assistant/invoke` 的结构化业务失败 |
+| 422 | - | 请求参数校验失败 |
+| 503 | `error` | `/assistant/v3/invoke` 等显式 runtime 路由失败 |
+| 500 | - | 未捕获的服务器内部错误 |
 
 ### B. triage_level 枚举值
 
