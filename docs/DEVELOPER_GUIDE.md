@@ -1548,11 +1548,9 @@ REDIS_SESSION_TTL=3600
 
 # === 高德地图 ===
 AMAP_API_KEY=xxxxx
-AMAP_SEARCH_RADIUS=10000
 
 # === NCBI ===
 NCBI_BASE_URL=https://eutils.ncbi.nlm.nih.gov/entrez/eutils
-NCBI_API_DELAY=0.5
 
 # === 天气 ===
 # 使用 Open-Meteo，无需额外天气环境变量
@@ -1560,7 +1558,7 @@ NCBI_API_DELAY=0.5
 # === 服务器 ===
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
-SERVER_DEBUG=false
+DEBUG=false
 LOG_LEVEL=INFO
 TRINAV_LOG_FILE=logs/trinav.log
 
@@ -1568,8 +1566,14 @@ TRINAV_LOG_FILE=logs/trinav.log
 LANGCHAIN_TRACING_V2=false
 LANGCHAIN_API_KEY=xxxxx
 LANGCHAIN_PROJECT=trinav-dev
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
-# === 约束 ===
+# === 超时（秒） ===
+LLM_TIMEOUT=30
+AMAP_TIMEOUT=5
+NCBI_TIMEOUT=10
+
+# === 输入与交互约束 ===
 MAX_TEXT_LENGTH=2000
 MAX_CLARIFICATION_ROUNDS=2
 MAX_CLARIFICATION_QUESTIONS=3
