@@ -88,7 +88,7 @@ TriNav/
 ## Implementation Status
 
 ✅ **Complete**:
-- 18-node LangGraph workflow and LangServe API
+- 18-node LangGraph workflow and FastAPI compat API surface
 - `/assistant/invoke` compat envelope backed by the v3 runtime baseline
 - Legacy LangGraph execution retained for fallback/shadow validation, not as the default path
 - External services: Redis, Qwen LLM, Amap navigation, Open-Meteo weather, NCBI evidence
@@ -144,8 +144,10 @@ See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for details.
 curl -X POST http://localhost:8000/assistant/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "session_id": "550e8400-e29b-41d4-a716-446655440000",
-    "text": "手臂出现红疹，有点痒，持续2天"
+    "input": {
+      "session_id": "550e8400-e29b-41d4-a716-446655440000",
+      "text": "手臂出现红疹，有点痒，持续2天"
+    }
   }'
 ```
 
@@ -170,10 +172,12 @@ curl -X POST http://localhost:8000/assistant/invoke \
 curl -X POST http://localhost:8000/assistant/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "session_id": "550e8400-e29b-41d4-a716-446655440002",
-    "text": "手臂出现红疹，有点痒，持续2天",
-    "gps_lat": 39.9042,
-    "gps_lng": 116.4074
+    "input": {
+      "session_id": "550e8400-e29b-41d4-a716-446655440002",
+      "text": "手臂出现红疹，有点痒，持续2天",
+      "gps_lat": 39.9042,
+      "gps_lng": 116.4074
+    }
   }'
 ```
 

@@ -212,12 +212,12 @@ curl -X POST http://localhost:8000/assistant/invoke \
 
 #### 4.1.3 响应参数
 
-**LangServe 响应包装**：顶层包含 `output` 与 `metadata`。
+**兼容响应包装**：顶层包含 `output` 与 `metadata`。
 
 | 顶层字段 | 类型 | 说明 |
 |:-----|:------|:-----|
 | `output` | object | 主要响应数据 |
-| `metadata` | object | LangServe 元数据（如 `run_id`） |
+| `metadata` | object | 兼容层元数据；当前固定返回 `{"runtime_mode": "v3"}` |
 
 **output 字段说明：**
 
@@ -273,7 +273,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
     "turn_count": 1
   },
   "metadata": {
-    "run_id": "2f2e5a5c-3b9a-4a5a-9f4d-33a7f4d2a999"
+    "runtime_mode": "v3"
   }
 }
 ```
@@ -298,7 +298,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
     "disclaimer": "本建议仅供参考，不替代专业医疗诊断。"
   },
   "metadata": {
-    "run_id": "7a8f2b8c-0c94-4e7f-8b47-3f0a9d4a4a11"
+    "runtime_mode": "v3"
   }
 }
 ```
@@ -320,7 +320,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
     "turn_count": 1
   },
   "metadata": {
-    "run_id": "0d1a3b2f-8f4d-4b5c-9c1a-1b2c3d4e5f60"
+    "runtime_mode": "v3"
   }
 }
 ```
@@ -389,7 +389,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
     }
   },
   "metadata": {
-    "run_id": "5b6c7d8e-9f01-4a2b-8c3d-4e5f6a7b8c9d"
+    "runtime_mode": "v3"
   }
 }
 ```
@@ -403,7 +403,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
     "error_message": "输入验证失败: 缺少症状信息，无法进行分诊评估"
   },
   "metadata": {
-    "run_id": "9a8b7c6d-5e4f-3a2b-1c0d-abcdef123456"
+    "runtime_mode": "v3"
   }
 }
 ```
@@ -580,7 +580,7 @@ curl http://localhost:8000/
     "error_message": "错误描述"
   },
   "metadata": {
-    "run_id": "..."
+    "runtime_mode": "v3"
   }
 }
 ```
