@@ -26,6 +26,16 @@ def client() -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit v3 route tests assume the runtime gate is enabled unless overridden."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
+
+
 def _mock_runtime_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -156,6 +166,40 @@ def test_assistant_v3_invoke_error_status_maps_to_503(
     assert "error_message" in data
     assert isinstance(data["trace_id"], str)
     UUID(data["trace_id"])
+
+
+def test_assistant_v3_invoke_returns_503_when_runtime_flag_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit v3 invoke should reject execution when the v3 runtime flag is disabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=False, v3_legacy_fallback_enabled=True),
+    )
+
+    async def fail_primary(_payload: AssistantV2InvokePayload) -> JSONResponse:
+        raise AssertionError("primary v3 path should not execute when runtime is disabled")
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fail_primary)
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-disabled",
+            "session_id": "sess-v3-disabled",
+            "trace_id": "trace-v3-disabled",
+            "text": "持续胸痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["error_message"] == "assistant_v3_runtime_disabled"
+    assert data["trace"]["error_stage"] == "runtime_gate"
 
 
 def test_public_assistant_invoke_matches_v3_default_route_contract(

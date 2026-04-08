@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -20,6 +21,16 @@ from src.server import app
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit v3 stream tests assume the runtime gate is enabled unless overridden."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
 
 
 def _mock_runtime_run(
@@ -165,6 +176,48 @@ def test_assistant_v3_stream_error_final_still_uses_http_200(
     final_payload = json.loads(frames[1]["data"])
     assert final_payload["status"] == "error"
     assert final_payload["error_message"] == "assistant_v2_stream_failed"
+
+
+def test_assistant_v3_stream_returns_final_error_when_runtime_flag_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit v3 stream should not execute the runtime when the v3 flag is disabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: type(
+            "SettingsStub",
+            (),
+            {"v3_runtime_enabled": False, "v3_legacy_fallback_enabled": True},
+        )(),
+    )
+
+    async def fail_invoke(payload):
+        _ = payload
+        raise AssertionError("stream path should not execute invoke_assistant_v2 when runtime is disabled")
+
+    monkeypatch.setattr("src.interfaces.api.assistant_v2.invoke_assistant_v2", fail_invoke)
+
+    response = client.post(
+        "/assistant/v3/stream",
+        json={
+            "request_id": "req-test-v3-disabled-stream",
+            "session_id": "sess-test-v3-disabled-stream",
+            "trace_id": "trace-test-v3-disabled-stream",
+            "text": "头痛两天",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    frames = _parse_sse_frames(response.text)
+    assert len(frames) == 3
+    final_payload = json.loads(frames[1]["data"])
+    assert final_payload["status"] == "error"
+    assert final_payload["error_message"] == "assistant_v3_runtime_disabled"
+    assert final_payload["trace"]["error_stage"] == "runtime_gate"
+    assert frames[2]["data"] == "[DONE]"
 
 
 def test_assistant_v3_stream_contract_doc_mentions_http_200_error_parity() -> None:

@@ -1,6 +1,7 @@
 """Shared runtime entrypoints for assistant v3."""
 
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -16,6 +17,8 @@ from src.interfaces.api.assistant_v2 import (
     _persist_runtime_snapshot,
     _record_runtime_events,
     _serialize_safety_result,
+    _sse_event,
+    _stream_error_payload,
     stream_assistant_v2,
 )
 
@@ -225,6 +228,66 @@ def _primary_failure_details_from_response(response: JSONResponse) -> tuple[str,
     )
 
 
+async def _runtime_disabled_error_response(
+    *,
+    request_id: str,
+    session_id: str,
+    trace_id: str,
+) -> JSONResponse:
+    """Return the canonical structured error when the v3 runtime gate is off."""
+
+    return await _error_response(
+        session_id=session_id,
+        request_id=request_id,
+        trace_id=trace_id,
+        message="assistant_v3_runtime_disabled",
+        trace={
+            "request_id": request_id,
+            "error_stage": "runtime_gate",
+            "error_type": "RuntimeDisabled",
+            "error_message": "v3 runtime disabled by configuration",
+        },
+    )
+
+
+def _runtime_disabled_stream_response(
+    *,
+    request_id: str,
+    session_id: str,
+    trace_id: str,
+) -> StreamingResponse:
+    """Return a stream-final error payload when the v3 runtime gate is off."""
+
+    async def event_stream() -> AsyncIterator[str]:
+        yield _sse_event(
+            "status",
+            {
+                "status": "start",
+                "request_id": request_id,
+                "session_id": session_id,
+                "trace_id": trace_id,
+            },
+        )
+        yield _sse_event(
+            "final",
+            _stream_error_payload(
+                session_id=session_id,
+                request_id=request_id,
+                trace_id=trace_id,
+                message="assistant_v3_runtime_disabled",
+                trace={
+                    "request_id": request_id,
+                    "error_stage": "runtime_gate",
+                    "error_type": "RuntimeDisabled",
+                    "error_message": "v3 runtime disabled by configuration",
+                },
+            ),
+        )
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
     """Invoke v3 primary runtime and optionally fall back to legacy chain."""
 
@@ -241,6 +304,12 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
     settings: Any | None = None
     try:
         settings = get_settings()
+        if not bool(getattr(settings, "v3_runtime_enabled", True)):
+            return await _runtime_disabled_error_response(
+                request_id=request_id,
+                session_id=session_id,
+                trace_id=trace_id,
+            )
         primary_response = await _invoke_primary_v3(resolved_payload)
     except Exception as exc:
         if settings is not None and bool(getattr(settings, "v3_legacy_fallback_enabled", False)):
@@ -317,5 +386,21 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
 
 async def stream_runtime_v3(payload: AssistantV2InvokePayload) -> StreamingResponse:
     """Stream the current v3 runtime through the existing v2 coordinator path."""
+
+    request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
+    session_id = (payload.session_id or "").strip() or str(uuid4())
+    trace_id = (payload.trace_id or "").strip() or str(uuid4())
+
+    try:
+        settings = get_settings()
+    except Exception:
+        settings = None
+
+    if settings is not None and not bool(getattr(settings, "v3_runtime_enabled", True)):
+        return _runtime_disabled_stream_response(
+            request_id=request_id,
+            session_id=session_id,
+            trace_id=trace_id,
+        )
 
     return await stream_assistant_v2(payload)

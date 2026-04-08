@@ -405,6 +405,48 @@ class TestAssistantCompatRoutes:
         assert response.json()["output"]["error_message"] == "assistant_v3_task_runtime_failed"
         assert response.json()["metadata"]["runtime_mode"] == "v3"
 
+    def test_invoke_endpoint_wraps_runtime_disabled_as_structured_http_200(
+        self,
+        client,
+        monkeypatch,
+    ):
+        """Compat invoke should preserve HTTP 200 transport when the v3 runtime flag is disabled."""
+
+        monkeypatch.setattr(
+            "src.interfaces.api.runtime_v3.get_settings",
+            lambda: type(
+                "SettingsStub",
+                (),
+                {"v3_runtime_enabled": False, "v3_legacy_fallback_enabled": True},
+            )(),
+        )
+
+        async def fail_primary(payload):
+            _ = payload
+            raise AssertionError("primary v3 path should not execute when runtime is disabled")
+
+        monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fail_primary)
+
+        response = client.post(
+            "/assistant/invoke",
+            json={
+                "input": {
+                    "request_id": "req-compat-disabled",
+                    "session_id": "sess-compat-disabled",
+                    "trace_id": "trace-compat-disabled",
+                    "text": "test disabled",
+                }
+            },
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["output"]["status"] == "error"
+        assert body["output"]["error_message"] == "assistant_v3_runtime_disabled"
+        assert body["output"]["trace"]["error_stage"] == "runtime_gate"
+        assert body["metadata"]["runtime_mode"] == "v3"
+
     def test_stream_endpoint_exists_via_compat_adapter(self, client, monkeypatch):
         """Compat stream should inject v3 runtime mode and preserve SSE transport."""
 

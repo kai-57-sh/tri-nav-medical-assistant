@@ -21,6 +21,16 @@ def client() -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Admin tests that exercise explicit v3 invoke assume the runtime gate is enabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
+
+
 def _mock_runtime_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
