@@ -9,7 +9,6 @@ from pathlib import Path
 
 from src.release.ops.gate_report import build_gate_report
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLI_PATH = REPO_ROOT / "scripts" / "release" / "check_canary_gate.py"
 

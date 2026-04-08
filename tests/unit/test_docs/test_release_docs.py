@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNBOOK_PATH = REPO_ROOT / "docs" / "release" / "v3-cutover-runbook.md"
 CHECKLIST_PATH = REPO_ROOT / "docs" / "release" / "v4-cutover-checklist.md"

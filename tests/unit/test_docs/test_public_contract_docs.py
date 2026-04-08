@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 README_PATH = REPO_ROOT / "README.md"
 API_REFERENCE_PATH = REPO_ROOT / "docs" / "API_REFERENCE.md"

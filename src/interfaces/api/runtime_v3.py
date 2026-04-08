@@ -2,7 +2,7 @@
 
 import json
 from typing import Any
-from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -90,7 +90,6 @@ async def _normalized_legacy_fallback_response(
         response_text=legacy_payload.get("response"),
     )
     output_session_id = session_id
-    response_text = legacy_payload.get("response")
     error_message = legacy_payload.get("error_message")
     provenance_payload = legacy_payload.get("provenance")
     provenance: dict[str, Any] = {

@@ -11,6 +11,7 @@ import uvicorn
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 from .config.settings import get_settings
 from .utils.logging_config import get_logger, setup_logging
 from .utils.metrics import external_service_health, get_content_type, get_metrics
