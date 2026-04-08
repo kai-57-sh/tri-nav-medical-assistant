@@ -57,7 +57,13 @@ def test_runtime_doctor_v3_returns_flags_and_dependency_health(
 
     monkeypatch.setattr(
         "src.interfaces.api.runtime_admin_v3.get_settings",
-        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_shadow_compare_enabled=False),
+        lambda: SimpleNamespace(
+            v3_runtime_enabled=True,
+            v3_shadow_compare_enabled=False,
+            v4_canary_enabled=False,
+            v4_gate_max_red_flag_miss_rate=0.01,
+            v4_gate_max_p95_ms=6000,
+        ),
     )
 
     async def fake_get_redis_service() -> Any:
@@ -83,11 +89,60 @@ def test_runtime_doctor_v3_returns_flags_and_dependency_health(
     assert body["status"] == "ok"
     assert body["runtime"]["v3_runtime_enabled"] is True
     assert body["runtime"]["v3_shadow_compare_enabled"] is False
+    assert body["release"] == {
+        "v4_canary_enabled": False,
+        "max_red_flag_miss_rate": 0.01,
+        "max_p95_ms": 6000,
+    }
     assert body["dependencies"]["redis"]["healthy"] is True
     assert body["observability"] == {
         "sessions_with_events": 3,
         "total_runtime_events": 15,
         "sessions_with_snapshots": 2,
+    }
+
+
+def test_runtime_doctor_v3_returns_canary_gate_configuration(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Doctor endpoint should expose release gate settings for cutover checks."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_settings",
+        lambda: SimpleNamespace(
+            v3_runtime_enabled=True,
+            v3_shadow_compare_enabled=False,
+            v4_canary_enabled=True,
+            v4_gate_max_red_flag_miss_rate=0.01,
+            v4_gate_max_p95_ms=6000,
+        ),
+    )
+
+    async def fake_get_redis_service() -> Any:
+        return SimpleNamespace(is_healthy=True)
+
+    monkeypatch.setattr(
+        "src.services.redis_service.get_redis_service",
+        fake_get_redis_service,
+    )
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_runtime_store_summary",
+        lambda: {
+            "sessions_with_events": 1,
+            "total_runtime_events": 2,
+            "sessions_with_snapshots": 1,
+        },
+    )
+
+    response = client.get("/assistant/v3/runtime/doctor")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["release"] == {
+        "v4_canary_enabled": True,
+        "max_red_flag_miss_rate": 0.01,
+        "max_p95_ms": 6000,
     }
 
 

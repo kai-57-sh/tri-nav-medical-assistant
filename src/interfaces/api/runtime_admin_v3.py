@@ -67,6 +67,11 @@ async def runtime_doctor_v3() -> dict[str, Any]:
             "v3_runtime_enabled": settings.v3_runtime_enabled,
             "v3_shadow_compare_enabled": settings.v3_shadow_compare_enabled,
         },
+        "release": {
+            "v4_canary_enabled": settings.v4_canary_enabled,
+            "max_red_flag_miss_rate": settings.v4_gate_max_red_flag_miss_rate,
+            "max_p95_ms": settings.v4_gate_max_p95_ms,
+        },
         "dependencies": {
             "redis": {"healthy": redis_healthy},
         },
