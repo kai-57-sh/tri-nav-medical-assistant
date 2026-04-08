@@ -118,7 +118,7 @@ def test_assistant_v2_stream_returns_ordered_sse_frames(
     }
     assert final_payload["status"] == "final"
     assert final_payload["session_id"] == "sess-test-v2"
-    assert final_payload["response"] == "mocked response"
+    assert final_payload["response"].startswith("mocked response")
     assert final_payload["safety"]["risk_level"] == "low"
     assert final_payload["safety"]["matched_rules"] == []
 

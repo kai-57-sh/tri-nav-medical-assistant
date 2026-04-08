@@ -17,6 +17,22 @@ def test_v2_runtime_flag_defaults_false(monkeypatch):
     assert settings.v2_shadow_compare_enabled is False
 
 
+def test_v3_runtime_flags_default_true(monkeypatch):
+    """v3 runtime flags should default to True to align with .env.example baseline."""
+    monkeypatch.setenv("QWEN_API_KEY", "test-key")
+    monkeypatch.delenv("V3_RUNTIME_ENABLED", raising=False)
+    monkeypatch.delenv("V3_LEGACY_FALLBACK_ENABLED", raising=False)
+    monkeypatch.delenv("V3_TASK_COORDINATOR_ENABLED", raising=False)
+    monkeypatch.delenv("V3_BUILTIN_PLUGINS_ENABLED", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.v3_runtime_enabled is True
+    assert settings.v3_legacy_fallback_enabled is True
+    assert settings.v3_task_coordinator_enabled is True
+    assert settings.v3_builtin_plugins_enabled is True
+
+
 def test_v2_runtime_flag_from_env(monkeypatch):
     """v2 flags should load from environment variables."""
     monkeypatch.setenv("QWEN_API_KEY", "test-key")

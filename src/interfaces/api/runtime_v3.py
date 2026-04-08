@@ -19,25 +19,33 @@ from src.interfaces.api.assistant_v2 import (
     _serialize_safety_result,
     _sse_event,
     _stream_error_payload,
-    stream_assistant_v2,
 )
 
 _LEGACY_SESSION_NAMESPACE = uuid5(NAMESPACE_URL, "trinav.runtime_v3.legacy_session")
 
 
-async def _invoke_primary_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
-    """Invoke the explicit v3 task coordinator path."""
+def _resolve_payload_ids(
+    payload: AssistantV2InvokePayload,
+) -> tuple[str, str, str, AssistantV2InvokePayload]:
+    """Normalize request/session/trace IDs and return them with a resolved payload copy."""
 
     request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
     session_id = (payload.session_id or "").strip() or str(uuid4())
     trace_id = (payload.trace_id or "").strip() or str(uuid4())
-    resolved_payload = payload.model_copy(
+    resolved = payload.model_copy(
         update={
             "request_id": request_id,
             "session_id": session_id,
             "trace_id": trace_id,
         }
     )
+    return request_id, session_id, trace_id, resolved
+
+
+async def _invoke_primary_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
+    """Invoke the explicit v3 task coordinator path."""
+
+    request_id, session_id, trace_id, resolved_payload = _resolve_payload_ids(payload)
     return await _invoke_v3_task_coordinator(
         resolved_payload,
         request_id=request_id,
@@ -291,16 +299,7 @@ def _runtime_disabled_stream_response(
 async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
     """Invoke v3 primary runtime and optionally fall back to legacy chain."""
 
-    request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
-    session_id = (payload.session_id or "").strip() or str(uuid4())
-    trace_id = (payload.trace_id or "").strip() or str(uuid4())
-    resolved_payload = payload.model_copy(
-        update={
-            "request_id": request_id,
-            "session_id": session_id,
-            "trace_id": trace_id,
-        }
-    )
+    request_id, session_id, trace_id, resolved_payload = _resolve_payload_ids(payload)
     settings: Any | None = None
     try:
         settings = get_settings()
@@ -385,11 +384,9 @@ async def invoke_runtime_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
 
 
 async def stream_runtime_v3(payload: AssistantV2InvokePayload) -> StreamingResponse:
-    """Stream the current v3 runtime through the existing v2 coordinator path."""
+    """Stream v3 runtime results as SSE, sharing the same primary/fallback/disabled logic as invoke_runtime_v3."""
 
-    request_id = (payload.request_id or "").strip() or f"req-{uuid4()}"
-    session_id = (payload.session_id or "").strip() or str(uuid4())
-    trace_id = (payload.trace_id or "").strip() or str(uuid4())
+    request_id, session_id, trace_id, _ = _resolve_payload_ids(payload)
 
     try:
         settings = get_settings()
@@ -403,4 +400,48 @@ async def stream_runtime_v3(payload: AssistantV2InvokePayload) -> StreamingRespo
             trace_id=trace_id,
         )
 
-    return await stream_assistant_v2(payload)
+    async def event_stream() -> AsyncIterator[str]:
+        yield _sse_event(
+            "status",
+            {
+                "status": "start",
+                "request_id": request_id,
+                "session_id": session_id,
+                "trace_id": trace_id,
+            },
+        )
+        final_payload: dict[str, Any] | None = None
+        try:
+            invoke_response = await invoke_runtime_v3(payload)
+            final_payload = _decoded_response_body(invoke_response)
+        except Exception as exc:
+            final_payload = _stream_error_payload(
+                session_id=session_id,
+                request_id=request_id,
+                trace_id=trace_id,
+                message="assistant_v3_stream_failed",
+                trace={
+                    "request_id": request_id,
+                    "error_stage": "stream",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+            )
+        finally:
+            if final_payload is None:
+                final_payload = _stream_error_payload(
+                    session_id=session_id,
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    message="assistant_v3_stream_missing_final",
+                    trace={
+                        "request_id": request_id,
+                        "error_stage": "stream",
+                        "error_type": "MissingFinalPayload",
+                        "error_message": "final payload not generated",
+                    },
+                )
+            yield _sse_event("final", final_payload)
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

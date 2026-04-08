@@ -47,21 +47,21 @@ class Settings(BaseSettings):
         default=False,
         description="Enable TriNav v2 shadow comparison"
     )
-    v3_runtime_enabled: bool = Field(default=False, description="Enable TriNav v3 runtime")
+    v3_runtime_enabled: bool = Field(default=True, description="Enable TriNav v3 runtime")
     v3_shadow_compare_enabled: bool = Field(
         default=False,
         description="Enable TriNav v3 shadow comparison"
     )
     v3_legacy_fallback_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable legacy fallback when v3 runtime primary path fails",
     )
     v3_task_coordinator_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable v3 capability task coordinator path",
     )
     v3_builtin_plugins_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable built-in runtime plugins in v3 parity path",
     )
     v3_plugin_trace_enabled: bool = Field(
