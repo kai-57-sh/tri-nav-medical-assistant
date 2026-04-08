@@ -427,3 +427,58 @@ def test_stream_does_not_call_stream_assistant_v2_when_runtime_enabled(
     frames = _parse_sse_frames(response.text)
     final_payload = json.loads(frames[1]["data"])
     assert final_payload["response"] == "direct v3"
+
+
+def test_stream_fallback_disabled_returns_error_when_primary_fails(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When primary fails and legacy fallback is disabled, stream should emit a final error SSE."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
+
+    error_body = JSONResponse(
+        status_code=503,
+        content={
+            "status": "error",
+            "session_id": "sess-no-fallback",
+            "trace_id": "trace-no-fallback",
+            "error_message": "assistant_v3_task_runtime_failed",
+            "trace": {
+                "request_id": "req-no-fallback",
+                "error_stage": "task_orchestration",
+                "error_type": "RuntimeError",
+                "error_message": "primary crashed, no fallback",
+            },
+        },
+    )
+
+    async def fake_invoke_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
+        _ = payload
+        return error_body
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.invoke_runtime_v3",
+        fake_invoke_v3,
+    )
+
+    response = client.post(
+        "/assistant/v3/stream",
+        json={
+            "request_id": "req-no-fallback",
+            "session_id": "sess-no-fallback",
+            "trace_id": "trace-no-fallback",
+            "text": "头痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    frames = _parse_sse_frames(response.text)
+    assert len(frames) == 3
+    final_payload = json.loads(frames[1]["data"])
+    assert final_payload["status"] == "error"
+    assert final_payload["error_message"] == "assistant_v3_task_runtime_failed"

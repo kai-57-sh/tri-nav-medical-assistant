@@ -399,6 +399,32 @@ V3_BUILTIN_PLUGINS_ENABLED=true
 9. `scripts/smoke/check_v3_runtime.py`
 10. `scripts/release/run_cutover_checks.sh`
 
-## 11. 一句话接手结论
+## 11. 后续轮次更新记录
+
+### 2026-04-08 第二轮
+
+本轮完成：
+
+1. **P0: 统一 `/assistant/v3/stream` 的主执行语义** — 已完成
+   - `stream_runtime_v3` 不再委托 `stream_assistant_v2`，改为调用 `invoke_runtime_v3` 并将 JSONResponse 转为 SSE
+   - 抽取 `_resolve_payload_ids()` 辅助函数消除三处重复的 UUID 解析
+   - 新增 4 个测试覆盖：primary error → SSE error、fallback success → SSE success、fallback disabled → SSE error、不再调用 stream_assistant_v2
+
+2. **P1: 对齐 v3 flags 默认策略** — 已完成
+   - `v3_runtime_enabled`、`v3_legacy_fallback_enabled`、`v3_task_coordinator_enabled`、`v3_builtin_plugins_enabled` 默认值改为 `True`
+   - 与 `.env.example` baseline 对齐
+   - 更新相关测试（v2 contract tests 使用 `startswith` 适配 medical footer）
+
+本轮验证：
+- `pytest -q`：656 passed
+- `python -m mypy src`：通过
+- `uvx ruff check src tests`：通过
+- 已合并到 master，分支已删除
+
+剩余阻塞项（需要特定环境）：
+- 容器化 smoke（需 Docker daemon）
+- staging runbook 演练（需 staging 环境）
+
+## 12. 一句话接手结论
 
 TriNav 已经完成“v3 作为默认 invoke 主路径”的大部分收口，也具备了生产基线和发布治理骨架；下一位同事不需要再做战略设计，应该直接进入最后的 stream 语义统一、容器化实机验证和 staging cutover 演练。
