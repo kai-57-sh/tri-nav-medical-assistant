@@ -32,11 +32,12 @@
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌───────────────────────────────────────────────────────────┐ │
-│  │  API Layer (FastAPI + LangServe)                         │ │
+│  │  API Layer (FastAPI + Compat Envelope)                   │ │
 │  │  ┌─────────────────────────────────────────────────┐     │ │
 │  │  │ src/server.py                                    │     │ │
 │  │  │  - FastAPI app                                   │     │ │
-│  │  │  - LangServe routes (/assistant/invoke)          │     │ │
+│  │  │  - Public compat route (/assistant/invoke)       │     │ │
+│  │  │  - v3 runtime adapters and diagnostics           │     │ │
 │  │  │  - Health check (/health)                        │     │ │
 │  │  │  - CORS middleware                               │     │ │
 │  │  └─────────────────────────────────────────────────┘     │ │
@@ -218,8 +219,8 @@ TriNav/
 │
 ├── .env.example                  # 环境变量模板
 ├── AGENTS.md                     # 贡献与协作指南
-├── docker-compose.yml            # Docker编排（可选，自行提供）
-├── Dockerfile                    # 镜像构建（可选，自行提供）
+├── docker-compose.yml            # Docker编排（已提供）
+├── Dockerfile                    # 镜像构建（已提供）
 ├── requirements.txt              # 生产依赖
 ├── requirements-dev.txt          # 开发依赖
 ├── pyproject.toml               # 项目配置
@@ -1554,7 +1555,7 @@ NCBI_BASE_URL=https://eutils.ncbi.nlm.nih.gov/entrez/eutils
 NCBI_API_DELAY=0.5
 
 # === 天气 ===
-WEATHER_API_URL=https://api.open-meteo.com/v1/forecast
+# 使用 Open-Meteo，无需额外天气环境变量
 
 # === 服务器 ===
 SERVER_HOST=0.0.0.0
@@ -1573,36 +1574,48 @@ MAX_TEXT_LENGTH=2000
 MAX_CLARIFICATION_ROUNDS=2
 MAX_CLARIFICATION_QUESTIONS=3
 
+# === v2/v3 运行时 ===
+V2_RUNTIME_ENABLED=false
+V2_SHADOW_COMPARE_ENABLED=false
+V3_RUNTIME_ENABLED=true
+V3_SHADOW_COMPARE_ENABLED=false
+V3_LEGACY_FALLBACK_ENABLED=true
+V3_TASK_COORDINATOR_ENABLED=true
+V3_BUILTIN_PLUGINS_ENABLED=true
+V3_PLUGIN_TRACE_ENABLED=true
+V3_PLUGIN_MEDICAL_FOOTER_ENABLED=true
+
 # === v4 灰度门禁 ===
-V4_RUNTIME_ENABLED=true
-V4_CANARY_ENABLED=true
+V4_CANARY_ENABLED=false
 V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
 V4_GATE_MAX_P95_MS=6000
 ```
 
-### A.1 v4 执行路径与灰度配置
+### A.1 v3/v4 执行路径与灰度配置
 
-v4 切流时，服务执行路径建议按下列顺序验证：
+当前基线下，`/assistant/invoke` 仍是对外兼容入口，但内部默认执行路径已切到 v3 runtime。旧 LangGraph 仅用于 fallback/shadow。建议按下列顺序验证：
 
-1. 客户端请求 `POST /assistant/v3/invoke` 或 `POST /assistant/v3/stream`
-2. v3 适配层注入 `metadata.runtime_mode=v3` 后委托到 assistant v2 入口
-3. assistant v2 统一入口进入 `RuntimeKernel`
-4. 若开启 canary，则在放量前执行 shadow/canary gate 指标检查
-
-运行态配置示例（发布平台配置项）：
-
-```ini
-v4_runtime_enabled=true
-v4_canary_enabled=true
-v4_gate_max_red_flag_miss_rate=0.01
-```
+1. 客户端请求 `POST /assistant/invoke`，或显式请求 `POST /assistant/v3/invoke` / `POST /assistant/v3/stream`
+2. 服务注入 `metadata.runtime_mode=v3`
+3. v3 runtime 进入任务协调器、内建插件和能力编排
+4. 若开启 `V3_LEGACY_FALLBACK_ENABLED` 或 `V3_SHADOW_COMPARE_ENABLED`，旧 LangGraph 只参与兜底或比对
+5. 若开启 canary，则在放量前执行 shadow/canary gate 指标检查
 
 对应环境变量示例：
 
 ```ini
-V4_RUNTIME_ENABLED=true
-V4_CANARY_ENABLED=true
+V2_RUNTIME_ENABLED=false
+V2_SHADOW_COMPARE_ENABLED=false
+V3_RUNTIME_ENABLED=true
+V3_SHADOW_COMPARE_ENABLED=false
+V3_LEGACY_FALLBACK_ENABLED=true
+V3_TASK_COORDINATOR_ENABLED=true
+V3_BUILTIN_PLUGINS_ENABLED=true
+V3_PLUGIN_TRACE_ENABLED=true
+V3_PLUGIN_MEDICAL_FOOTER_ENABLED=true
+V4_CANARY_ENABLED=false
 V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
+V4_GATE_MAX_P95_MS=6000
 ```
 
 ### B. 常用命令

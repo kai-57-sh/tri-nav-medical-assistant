@@ -2,7 +2,7 @@
 
 **Status**: ✅ Production Ready
 
-A LangChain-based medical triage system that helps users understand symptom urgency and navigate to appropriate care. Built with LangGraph 18-node workflow, LangServe deployment, and integrated external services (Amap, Weather, NCBI).
+A LangChain-based medical triage system that helps users understand symptom urgency and navigate to appropriate care. The public `POST /assistant/invoke` envelope remains stable, but the service now defaults internally to the v3 runtime baseline, with the legacy LangGraph path retained for fallback and shadow comparison. Integrated external services include Amap navigation, Open-Meteo weather, and NCBI evidence retrieval.
 
 ---
 
@@ -29,7 +29,8 @@ pip install -r requirements-dev.txt
 
 # Copy environment template
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with the required API keys
+# No weather-specific env vars are required; weather uses Open-Meteo
 ```
 
 ### Development Setup
@@ -38,6 +39,9 @@ cp .env.example .env
 # Start Redis (local or Docker)
 redis-server
 # or: docker run --name trinav-redis -p 6379:6379 redis:7-alpine
+
+# Optional: start the full local stack with the checked-in container assets
+docker compose up --build
 
 # Run tests
 pytest
@@ -85,6 +89,8 @@ TriNav/
 
 ✅ **Complete**:
 - 18-node LangGraph workflow and LangServe API
+- `/assistant/invoke` compat envelope backed by the v3 runtime baseline
+- Legacy LangGraph execution retained for fallback/shadow validation, not as the default path
 - External services: Redis, Qwen LLM, Amap navigation, Open-Meteo weather, NCBI evidence
 - Frontend UI (Vite + React)
 - Structured logging and metrics
@@ -96,8 +102,8 @@ See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for details.
 ## Architecture
 
 **Technology Stack**:
-- LangChain + LangGraph 1.0.5+ (18-node stateful workflow)
-- LangServe (API deployment)
+- LangChain + LangGraph 1.0.5+ (legacy workflow fallback and shadow path)
+- FastAPI + compat envelope at `/assistant/invoke`, defaulting internally to the v3 runtime
 - Python 3.11+ (async/await)
 - Redis 5.0+ (session storage, 60min TTL)
 - Pydantic v2 (data validation)
@@ -174,7 +180,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
 **Response includes**:
 - 3 hospital recommendations (3A prioritized)
 - Route plan to top hospital
-- Weather alert (if available)
+- Weather alert from Open-Meteo (if available, no API key required)
 > Note: navigation uses Amap and primarily covers mainland China. Non-China coordinates may return no hospitals.
 
 ---

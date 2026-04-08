@@ -24,7 +24,7 @@
 
 ## 1. 概述
 
-TriNav API 提供医疗分诊和医院导航服务的 RESTful 接口。基于 LangServe 构建，支持文本描述、图片上传和 GPS 定位等多种输入方式。
+TriNav API 提供医疗分诊和医院导航服务的 RESTful 接口。对外仍保持 `POST /assistant/invoke` 兼容包装，但服务内部默认执行路径已经切换到 v3 runtime；旧 LangGraph/LangServe 路径仅保留为 fallback 和 shadow compare。支持文本描述、图片上传和 GPS 定位等多种输入方式。
 
 ### 1.1 核心功能
 
@@ -108,32 +108,33 @@ X-Response-Time: ms       # 响应时间（毫秒）
 | `ROUTINE` | 常规 | 预约门诊 |
 | `SELF_CARE` | 自我护理 | 家庭护理 + 观察 |
 
-### 3.5 v4 执行路径与灰度开关
+### 3.5 v3/v4 执行路径与灰度开关
 
-当前版本中，`/assistant/v3/*` 为协议适配层，核心执行入口统一收敛到 assistant v2 runtime kernel。
+当前版本中，`/assistant/invoke` 仍是对外公开的兼容入口，请求会落入 v3 runtime 默认执行路径；`/assistant/v3/*` 为显式的 v3 协议适配入口。旧 LangGraph 路径不再是默认执行路径，仅用于 fallback/shadow。
 
 典型执行路径：
 
-1. `POST /assistant/v3/invoke` 或 `POST /assistant/v3/stream`
-2. v3 适配层写入 `metadata.runtime_mode=v3`
-3. 委托到 assistant v2 统一入口
-4. 进入 runtime kernel 执行能力编排
+1. `POST /assistant/invoke` 接收兼容请求包装，或直接调用 `POST /assistant/v3/invoke` / `POST /assistant/v3/stream`
+2. 服务写入 `metadata.runtime_mode=v3`
+3. 进入 v3 runtime 执行任务协调、内建插件和能力编排
+4. 若启用 fallback/shadow，则旧 LangGraph 路径只参与兜底或比对
 5. 若启用 canary，则结合 shadow 指标执行放量门禁
 
-发布配置示例（平台配置项）：
+推荐环境变量示例：
 
 ```ini
-v4_runtime_enabled=true
-v4_canary_enabled=true
-v4_gate_max_red_flag_miss_rate=0.01
-```
-
-对应环境变量：
-
-```ini
-V4_RUNTIME_ENABLED=true
-V4_CANARY_ENABLED=true
+V2_RUNTIME_ENABLED=false
+V2_SHADOW_COMPARE_ENABLED=false
+V3_RUNTIME_ENABLED=true
+V3_SHADOW_COMPARE_ENABLED=false
+V3_LEGACY_FALLBACK_ENABLED=true
+V3_TASK_COORDINATOR_ENABLED=true
+V3_BUILTIN_PLUGINS_ENABLED=true
+V3_PLUGIN_TRACE_ENABLED=true
+V3_PLUGIN_MEDICAL_FOOTER_ENABLED=true
+V4_CANARY_ENABLED=false
 V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
+V4_GATE_MAX_P95_MS=6000
 ```
 
 ---
@@ -144,9 +145,9 @@ V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
 
 **端点**: `POST /assistant/invoke`
 
-**描述**: 执行医疗分诊评估，返回分诊等级、推荐科室、医院导航等信息。
+**描述**: 执行医疗分诊评估，返回分诊等级、推荐科室、医院导航等信息。该端点对外保持兼容包装，内部默认走 v3 runtime。
 
-**LangServe 请求包装**：请求体必须包含 `input` 对象，实际参数放在 `input` 内。
+**兼容请求包装**：请求体必须包含 `input` 对象，实际参数放在 `input` 内。这一公开 envelope 保持不变，用于兼容既有客户端。
 
 #### 4.1.1 请求参数
 
@@ -234,7 +235,7 @@ curl -X POST http://localhost:8000/assistant/invoke \
 | `clarify_questions` | string[] | 澄清问题（需更多信息时） |
 | `navigation` | object | 导航信息（提供 GPS 时） |
 | `evidence` | object[] | 医学证据（NCBI 检索结果） |
-| `weather_alert` | object | 天气预警（提供 GPS 时） |
+| `weather_alert` | object | 天气预警（提供 GPS 时，数据来自 Open-Meteo，无需额外 API Key） |
 | `visual_findings` | object | 视觉发现（提供图片时） |
 | `response` | string | 自然语言响应 |
 | `disclaimer` | string | 免责声明 |
