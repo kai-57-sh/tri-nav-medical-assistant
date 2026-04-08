@@ -106,6 +106,32 @@ def test_check_v3_runtime_cli_fails_when_runtime_disabled() -> None:
     assert "doctor.status must be 'ok'" in result.stderr
 
 
+def test_check_v3_runtime_cli_fails_when_runtime_flag_is_false() -> None:
+    """Smoke CLI must fail even when doctor.status is ok but the runtime flag is false."""
+
+    with _serve_runtime_stub(
+        doctor_payload={
+            "status": "ok",
+            "runtime": {
+                "v3_runtime_enabled": False,
+                "v3_shadow_compare_enabled": False,
+            },
+            "dependencies": {"redis": {"healthy": True}},
+            "observability": {"sessions_with_events": 0},
+        }
+    ) as (base_url, _requests_seen):
+        result = subprocess.run(
+            [sys.executable, str(CLI_PATH), base_url],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert result.returncode == 1
+    assert "v3 runtime must be enabled" in result.stderr
+
+
 def test_check_v3_runtime_cli_calls_invoke_when_runtime_ready() -> None:
     """Successful smoke runs must hit the invoke route, not just the doctor route."""
 

@@ -9,13 +9,20 @@ from typing import Any
 from urllib import error, request
 
 
+def _read_json_response(response: Any, url: str) -> tuple[int, dict[str, Any]]:
+    status = getattr(response, "status", response.getcode())
+    payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected JSON object from {url}, got {type(payload).__name__}")
+    return status, payload
+
+
 def _fetch_json(url: str, timeout: float) -> tuple[int, dict[str, Any]]:
-    with request.urlopen(url, timeout=timeout) as response:
-        status = getattr(response, "status", response.getcode())
-        payload = json.loads(response.read().decode("utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError(f"Expected JSON object from {url}, got {type(payload).__name__}")
-        return status, payload
+    try:
+        with request.urlopen(url, timeout=timeout) as response:
+            return _read_json_response(response, url)
+    except error.HTTPError as exc:
+        return _read_json_response(exc, url)
 
 
 def _post_json(url: str, payload: dict[str, Any], timeout: float) -> tuple[int, dict[str, Any]]:
@@ -26,12 +33,11 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float) -> tuple[int, 
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with request.urlopen(http_request, timeout=timeout) as response:
-        status = getattr(response, "status", response.getcode())
-        decoded = json.loads(response.read().decode("utf-8"))
-        if not isinstance(decoded, dict):
-            raise ValueError(f"Expected JSON object from {url}, got {type(decoded).__name__}")
-        return status, decoded
+    try:
+        with request.urlopen(http_request, timeout=timeout) as response:
+            return _read_json_response(response, url)
+    except error.HTTPError as exc:
+        return _read_json_response(exc, url)
 
 
 def _expect(condition: bool, message: str) -> None:
@@ -53,8 +59,10 @@ def main(argv: list[str]) -> int:
         "session_id": "smoke-v3",
         "text": "持续头痛两天",
     }
+    current_url = doctor_url
 
     try:
+        current_url = doctor_url
         status, doctor = _fetch_json(doctor_url, timeout)
         _expect(status == 200, f"Expected 200 from {doctor_url}, got {status}")
         _expect(doctor.get("status") == "ok", "doctor.status must be 'ok'")
@@ -86,6 +94,7 @@ def main(argv: list[str]) -> int:
             "doctor.observability must be an object when present",
         )
 
+        current_url = invoke_url
         invoke_status, invoke = _post_json(invoke_url, smoke_payload, timeout=15.0)
         _expect(
             invoke_status in {200, 503},
@@ -97,10 +106,10 @@ def main(argv: list[str]) -> int:
             "invoke.session_id must be a non-empty string",
         )
     except (AssertionError, ValueError, json.JSONDecodeError) as exc:
-        print(f"FAIL {doctor_url}: {exc}", file=sys.stderr)
+        print(f"FAIL {current_url}: {exc}", file=sys.stderr)
         return 1
     except error.URLError as exc:
-        print(f"FAIL {doctor_url}: {exc}", file=sys.stderr)
+        print(f"FAIL {current_url}: {exc}", file=sys.stderr)
         return 1
 
     print(
