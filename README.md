@@ -23,9 +23,11 @@ cd TriNav
 python3.11 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# Install runtime dependencies
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
+
+# Install local QA tooling when you need tests, lint, typing, or notebooks
+pip install pytest pytest-asyncio pytest-mock pytest-cov black ruff mypy ipython jupyter
 
 # Copy environment template
 cp .env.example .env
@@ -80,8 +82,6 @@ TriNav/
 │   └── config/           # Settings and versioned rules
 ├── tests/                # Unit, integration, contract tests
 ├── docs/                 # Architecture, workflow, safety docs
-├── specs/                # Feature specifications
-│   └── 001-medical-triage-nav/
 └── requirements.txt      # Python dependencies
 ```
 
@@ -96,8 +96,6 @@ TriNav/
 - External services: Redis, Qwen LLM, Amap navigation, Open-Meteo weather, NCBI evidence
 - Frontend UI (Vite + React)
 - Structured logging and metrics
-
-See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for details.
 
 ---
 
@@ -267,22 +265,18 @@ mypy src/
 
 ## Documentation
 
-- [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) - Detailed implementation status
-- [specs/001-medical-triage-nav/spec.md](./specs/001-medical-triage-nav/spec.md) - Feature specification
-- [specs/001-medical-triage-nav/plan.md](./specs/001-medical-triage-nav/plan.md) - Technical plan
-- [specs/001-medical-triage-nav/tasks.md](./specs/001-medical-triage-nav/tasks.md) - Implementation tasks
-- [specs/001-medical-triage-nav/data-model.md](./specs/001-medical-triage-nav/data-model.md) - Data models
-- [specs/001-medical-triage-nav/quickstart.md](./specs/001-medical-triage-nav/quickstart.md) - Developer guide
+- [docs/USER_MANUAL.md](./docs/USER_MANUAL.md) - User setup and operating guide
+- [docs/API_REFERENCE.md](./docs/API_REFERENCE.md) - API endpoints and contract details
+- [docs/DEVELOPER_GUIDE.md](./docs/DEVELOPER_GUIDE.md) - Local development workflow
 
 ---
 
 ## Contributing
 
-This project follows the SpecKit development workflow:
-1. Feature specification (`spec.md`)
-2. Implementation planning (`/speckit.plan`)
-3. Task breakdown (`/speckit.tasks`)
-4. Implementation (`/speckit.implement`)
+Before opening a change:
+1. Add or update tests for behavior changes
+2. Run backend checks (`pytest`, `mypy`, `ruff`)
+3. Run frontend checks (`npm run build`, `npm run lint`) when UI code changes
 
 ---
 
@@ -295,6 +289,5 @@ This project follows the SpecKit development workflow:
 ## Support
 
 For issues or questions:
-- Review [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for current progress
-- Check `docs/SAFETY.md` for safety-related concerns (when created)
-- Review technical plan in `specs/001-medical-triage-nav/plan.md`
+- Review [docs/USER_MANUAL.md](./docs/USER_MANUAL.md) for setup and usage guidance
+- Review [docs/API_REFERENCE.md](./docs/API_REFERENCE.md) for request and response details

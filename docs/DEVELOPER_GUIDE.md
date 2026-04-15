@@ -123,14 +123,16 @@ requirements.txt (生产依赖)
 ├── tenacity>=8.2.0               # 重试机制
 └── prometheus-client>=0.19.0     # 指标暴露
 
-requirements-dev.txt (开发依赖)
+本地开发工具链（按需安装）
 ├── pytest>=7.4.0                 # 测试框架
 ├── pytest-asyncio>=0.21.0        # 异步测试
+├── pytest-mock>=3.11.0           # mock fixture
 ├── pytest-cov>=4.1.0             # 覆盖率
 ├── black>=23.12.0                # 代码格式化
 ├── ruff>=0.1.0                   # 代码检查
 ├── mypy>=1.7.0                   # 类型检查
-└── bandit>=1.7.0                 # 安全检查
+├── ipython>=8.0.0                # 交互式调试
+└── jupyter>=1.0.0                # Notebook支持
 ```
 
 ### 1.3 目录结构说明
@@ -214,15 +216,10 @@ TriNav/
 │
 ├── frontend/                     # 前端（Vite + React）
 │
-├── specs/                        # 规格文档
-│   └── 001-medical-triage-nav/
-│
 ├── .env.example                  # 环境变量模板
-├── AGENTS.md                     # 贡献与协作指南
 ├── docker-compose.yml            # Docker编排（已提供）
 ├── Dockerfile                    # 镜像构建（已提供）
 ├── requirements.txt              # 生产依赖
-├── requirements-dev.txt          # 开发依赖
 ├── pyproject.toml               # 项目配置
 └── README.md                     # 项目说明
 ```

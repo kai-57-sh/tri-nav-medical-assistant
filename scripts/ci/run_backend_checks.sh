@@ -7,7 +7,7 @@ require_python_module() {
   local module="$1"
 
   if ! python -m "$module" --version >/dev/null 2>&1; then
-    echo "Missing Python module for 'python -m $module'. Install requirements.txt and requirements-dev.txt in the active environment." >&2
+    echo "Missing Python module for 'python -m $module'. Install requirements.txt plus the local QA tools in the active environment." >&2
     exit 127
   fi
 }
