@@ -15,7 +15,6 @@ os.environ.setdefault("QWEN_API_KEY", "test-key")
 from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload
 from src.interfaces.api.assistant_v3 import stream_assistant_v3
 from src.server import app
-
 from tests.conftest import parse_sse_frames
 
 

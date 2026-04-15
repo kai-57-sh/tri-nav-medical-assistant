@@ -33,6 +33,47 @@ def test_v3_runtime_flags_default_true(monkeypatch):
     assert settings.v3_builtin_plugins_enabled is True
 
 
+def test_v3_runtime_admin_defaults_false(monkeypatch):
+    """Runtime admin should be disabled by default for production safety."""
+    monkeypatch.setenv("QWEN_API_KEY", "test-key")
+    monkeypatch.delenv("V3_RUNTIME_ADMIN_ENABLED", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.v3_runtime_admin_enabled is False
+
+
+def test_cors_defaults_to_local_allowlist_without_credentials(monkeypatch):
+    """Safe defaults should allow only local frontend origins and disable credentials."""
+    monkeypatch.setenv("QWEN_API_KEY", "test-key")
+    monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+    monkeypatch.delenv("CORS_ALLOW_CREDENTIALS", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.cors_allow_origins == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+    assert settings.cors_allow_credentials is False
+
+
+def test_cors_allow_origins_accepts_comma_separated_env(monkeypatch):
+    """CORS allowlist should accept a comma-separated env var for deployment convenience."""
+    monkeypatch.setenv("QWEN_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "CORS_ALLOW_ORIGINS",
+        "https://tri.example.com, https://ops.example.com",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.cors_allow_origins == [
+        "https://tri.example.com",
+        "https://ops.example.com",
+    ]
+
+
 def test_v2_runtime_flag_from_env(monkeypatch):
     """v2 flags should load from environment variables."""
     monkeypatch.setenv("QWEN_API_KEY", "test-key")

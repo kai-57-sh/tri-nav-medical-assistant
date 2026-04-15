@@ -73,6 +73,9 @@ dmypy.json
 # Distribution
 *.whl
 *.tar.gz
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
 
 # Docker
 *.pid

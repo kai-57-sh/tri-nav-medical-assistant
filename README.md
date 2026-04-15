@@ -61,6 +61,8 @@ npm run dev
 ### Logs
 
 - Default log file: `logs/trinav.log` (override with `TRINAV_LOG_FILE`)
+- Runtime admin routes are disabled by default; enable them explicitly with `V3_RUNTIME_ADMIN_ENABLED=true` only in trusted environments.
+- Container health checks should target `GET /health/ready`; `GET /health` is liveness-only.
 
 ---
 
@@ -107,7 +109,7 @@ See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for details.
 - Python 3.11+ (async/await)
 - Redis 5.0+ (session storage, 60min TTL)
 - Pydantic v2 (data validation)
-- Qwen models (LLM via OpenAI-compatible API)
+- Qwen models via DashScope (`qwen-plus` for text, `qwen-vl-plus` for vision by default)
 
 **18-Node Workflow**:
 1. Input Validator → 2. Session Load → 3. Image Quality Gate → 4. Vision Extract

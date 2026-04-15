@@ -14,7 +14,6 @@ from ..utils.metrics import set_external_service_health
 logger = get_logger(__name__)
 
 settings = get_settings()
-MULTIMODAL_MODEL_NAME = "grok-4-1-fast-reasoning"
 
 
 class LLMService:
@@ -42,28 +41,28 @@ class LLMService:
             # Extraction model (low temp for consistency)
             self._extractor = ChatOpenAI(
                 **common_config,
-                model=MULTIMODAL_MODEL_NAME,
+                model=settings.llm_extractor_model,
                 temperature=0.1
             )
 
             # Vision model (multimodal)
             self._vision = ChatOpenAI(
                 **common_config,
-                model=MULTIMODAL_MODEL_NAME,
+                model=settings.llm_vision_model,
                 temperature=0.2
             )
 
             # Verification model (zero temp for strict safety)
             self._verifier = ChatOpenAI(
                 **common_config,
-                model=MULTIMODAL_MODEL_NAME,
+                model=settings.llm_verifier_model,
                 temperature=0.0
             )
 
             # Triage model (balanced creativity)
             self._triage = ChatOpenAI(
                 **common_config,
-                model=MULTIMODAL_MODEL_NAME,
+                model=settings.llm_triage_model,
                 temperature=0.3
             )
 

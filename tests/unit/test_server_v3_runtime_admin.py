@@ -31,6 +31,23 @@ def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def enable_runtime_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runtime admin endpoints are explicitly enabled in this test module unless overridden."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_settings",
+        lambda: SimpleNamespace(
+            v3_runtime_admin_enabled=True,
+            v3_runtime_enabled=True,
+            v3_shadow_compare_enabled=False,
+            v4_canary_enabled=False,
+            v4_gate_max_red_flag_miss_rate=0.01,
+            v4_gate_max_p95_ms=6000,
+        ),
+    )
+
+
 def _mock_runtime_run(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -59,6 +76,33 @@ def _mock_runtime_run(
     monkeypatch.setattr("src.core.runtime.event_bus.EventBus.dump", fake_dump)
 
 
+def test_runtime_admin_endpoints_return_404_when_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admin endpoints should be hidden when the runtime admin flag is disabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_admin_enabled=False),
+    )
+
+    doctor = client.get("/assistant/v3/runtime/doctor")
+    replay = client.get("/assistant/v3/runtime/sessions/sess-disabled/replay")
+    plugins = client.get("/assistant/v3/runtime/plugins")
+    resume = client.post(
+        "/assistant/v3/runtime/sessions/sess-disabled/resume",
+        json={"text": "继续"},
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert doctor.status_code == 404
+    assert replay.status_code == 404
+    assert plugins.status_code == 404
+    assert resume.status_code == 404
+    assert doctor.json() == {"detail": "runtime_admin_disabled"}
+
+
 def test_runtime_doctor_v3_returns_flags_and_dependency_health(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -68,6 +112,7 @@ def test_runtime_doctor_v3_returns_flags_and_dependency_health(
     monkeypatch.setattr(
         "src.interfaces.api.runtime_admin_v3.get_settings",
         lambda: SimpleNamespace(
+            v3_runtime_admin_enabled=True,
             v3_runtime_enabled=True,
             v3_shadow_compare_enabled=False,
             v4_canary_enabled=False,
@@ -121,6 +166,7 @@ def test_runtime_doctor_v3_returns_canary_gate_configuration(
     monkeypatch.setattr(
         "src.interfaces.api.runtime_admin_v3.get_settings",
         lambda: SimpleNamespace(
+            v3_runtime_admin_enabled=True,
             v3_runtime_enabled=True,
             v3_shadow_compare_enabled=False,
             v4_canary_enabled=True,

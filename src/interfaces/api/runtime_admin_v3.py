@@ -33,6 +33,15 @@ async def _resolve_maybe_awaitable(value: Any) -> Any:
     return value
 
 
+def _require_runtime_admin_enabled() -> Any:
+    """Hide runtime admin endpoints unless they are explicitly enabled."""
+
+    settings = get_settings()
+    if not bool(getattr(settings, "v3_runtime_admin_enabled", False)):
+        raise HTTPException(status_code=404, detail="runtime_admin_disabled")
+    return settings
+
+
 class RuntimeResumePayload(BaseModel):
     """Payload for resuming an existing v3 session."""
 
@@ -51,7 +60,7 @@ class RuntimeResumePayload(BaseModel):
 async def runtime_doctor_v3() -> dict[str, Any]:
     """Report runtime flags and key dependency health for v3 rollout checks."""
 
-    settings = get_settings()
+    settings = _require_runtime_admin_enabled()
     redis_healthy = False
     try:
         from src.services.redis_service import get_redis_service
@@ -83,6 +92,7 @@ async def runtime_doctor_v3() -> dict[str, Any]:
 async def replay_session_v3(session_id: str) -> dict[str, Any]:
     """Return replay data for one session from runtime stores."""
 
+    _require_runtime_admin_enabled()
     try:
         return await _REPLAY_SERVICE.replay(session_id)
     except SessionReplayNotFoundError:
@@ -93,6 +103,7 @@ async def replay_session_v3(session_id: str) -> dict[str, Any]:
 async def list_plugins_v3() -> dict[str, Any]:
     """List registered runtime plugins used by v2/v3 coordinator."""
 
+    _require_runtime_admin_enabled()
     plugins = list_runtime_plugins()
     return {
         "plugins": plugins,
@@ -104,6 +115,7 @@ async def list_plugins_v3() -> dict[str, Any]:
 async def resume_session_v3(session_id: str, payload: RuntimeResumePayload) -> JSONResponse:
     """Resume an existing session by re-invoking v3 on the same session id."""
 
+    _require_runtime_admin_enabled()
     try:
         await _REPLAY_SERVICE.resume(session_id)
     except SessionReplayNotFoundError:

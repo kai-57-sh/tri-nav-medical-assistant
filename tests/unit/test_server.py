@@ -304,14 +304,15 @@ class TestCORSMiddleware:
     """Tests for CORS middleware configuration."""
 
     def test_cors_headers_present(self, client):
-        """Test CORS headers are present in responses."""
+        """Local frontend origin should be allowed without wildcard credentials policy."""
         response = client.options("/", headers={
-            "Origin": "http://localhost:3000",
+            "Origin": "http://localhost:5173",
             "Access-Control-Request-Method": "POST",
         })
 
-        # CORS should be configured (though specific headers depend on implementation)
-        assert response.status_code in [200, 405]  # 405 is OK for OPTIONS without handler
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+        assert response.headers.get("access-control-allow-credentials") != "true"
 
 
 class TestAssistantCompatRoutes:

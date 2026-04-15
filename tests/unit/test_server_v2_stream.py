@@ -12,7 +12,6 @@ os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
 from src.server import app
-
 from tests.conftest import parse_sse_frames
 
 

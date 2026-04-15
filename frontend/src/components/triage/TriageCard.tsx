@@ -18,6 +18,44 @@ interface TriageCardProps {
   className?: string;
 }
 
+interface CollapsibleSectionProps {
+  id: string;
+  title: string;
+  icon: ComponentType<{ className?: string }>;
+  expanded: boolean;
+  onToggle: (section: string) => void;
+  children: ReactNode;
+}
+
+function CollapsibleSection({
+  id,
+  title,
+  icon: SectionIcon,
+  expanded,
+  onToggle,
+  children,
+}: CollapsibleSectionProps) {
+  return (
+    <div className="border-b border-border last:border-0">
+      <button
+        onClick={() => onToggle(id)}
+        className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <SectionIcon className="w-4 h-4 text-muted-foreground" />
+          {title}
+        </span>
+        {expanded ? (
+          <ChevronUp className="w-4 h-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+        )}
+      </button>
+      {expanded && <div className="px-3 pb-3 text-sm">{children}</div>}
+    </div>
+  );
+}
+
 export function TriageCard({ data, className }: TriageCardProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['triage', 'departments'])
@@ -69,40 +107,6 @@ export function TriageCard({ data, className }: TriageCardProps) {
   };
 
   const config = triageConfig[data.triage_level] || triageConfig.ROUTINE;
-
-  // 可折叠区块组件
-  const CollapsibleSection = ({
-    id,
-    title,
-    icon: SectionIcon,
-    children,
-  }: {
-    id: string;
-    title: string;
-    icon: ComponentType<{ className?: string }>;
-    children: ReactNode;
-  }) => {
-    const expanded = isExpanded(id);
-    return (
-      <div className="border-b border-border last:border-0">
-        <button
-          onClick={() => toggleSection(id)}
-          className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
-        >
-          <span className="flex items-center gap-2 text-sm font-medium">
-            <SectionIcon className="w-4 h-4 text-muted-foreground" />
-            {title}
-          </span>
-          {expanded ? (
-            <ChevronUp className="w-4 h-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
-          )}
-        </button>
-        {expanded && <div className="px-3 pb-3 text-sm">{children}</div>}
-      </div>
-    );
-  };
 
   return (
     <div
@@ -157,6 +161,8 @@ export function TriageCard({ data, className }: TriageCardProps) {
             id="departments"
             title="推荐科室"
             icon={Stethoscope}
+            expanded={isExpanded('departments')}
+            onToggle={toggleSection}
           >
             <div className="flex flex-wrap gap-2">
               {data.recommended_departments.map((dept, idx) => (
@@ -173,7 +179,13 @@ export function TriageCard({ data, className }: TriageCardProps) {
 
         {/* 可能病因 */}
         {data.possible_causes.length > 0 && (
-          <CollapsibleSection id="causes" title="可能病因" icon={Activity}>
+          <CollapsibleSection
+            id="causes"
+            title="可能病因"
+            icon={Activity}
+            expanded={isExpanded('causes')}
+            onToggle={toggleSection}
+          >
             <ul className="space-y-1">
               {data.possible_causes.map((cause, idx) => (
                 <li key={idx} className="flex items-start gap-2">
@@ -187,7 +199,13 @@ export function TriageCard({ data, className }: TriageCardProps) {
 
         {/* 自我护理建议 */}
         {data.self_care_tips.length > 0 && (
-          <CollapsibleSection id="tips" title="护理建议" icon={CheckCircle}>
+          <CollapsibleSection
+            id="tips"
+            title="护理建议"
+            icon={CheckCircle}
+            expanded={isExpanded('tips')}
+            onToggle={toggleSection}
+          >
             <ul className="space-y-1">
               {data.self_care_tips.map((tip, idx) => (
                 <li key={idx} className="flex items-start gap-2">
@@ -205,6 +223,8 @@ export function TriageCard({ data, className }: TriageCardProps) {
             id="flags"
             title="警示信号"
             icon={AlertTriangle}
+            expanded={isExpanded('flags')}
+            onToggle={toggleSection}
           >
             <ul className="space-y-1">
               {data.red_flags.map((flag, idx) => (
@@ -226,6 +246,8 @@ export function TriageCard({ data, className }: TriageCardProps) {
             id="weather"
             title="天气提醒"
             icon={Activity}
+            expanded={isExpanded('weather')}
+            onToggle={toggleSection}
           >
             <div className="p-2 bg-blue-50 dark:bg-blue-950/30 rounded">
               {(() => {
@@ -275,6 +297,8 @@ export function TriageCard({ data, className }: TriageCardProps) {
             id="visual"
             title="图片分析"
             icon={Activity}
+            expanded={isExpanded('visual')}
+            onToggle={toggleSection}
           >
             {(() => {
               const findings = data.visual_findings;
@@ -316,6 +340,8 @@ export function TriageCard({ data, className }: TriageCardProps) {
             id="evidence"
             title="分析依据"
             icon={CheckCircle}
+            expanded={isExpanded('evidence')}
+            onToggle={toggleSection}
           >
             <div className="space-y-2">
               {data.evidence.map((ev, idx) => (

@@ -1,6 +1,9 @@
 """Configuration management for TriNav application."""
+
+from typing import Annotated, Any
+
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -72,6 +75,10 @@ class Settings(BaseSettings):
         default=True,
         description="Enable built-in medical disclaimer footer plugin",
     )
+    v3_runtime_admin_enabled: bool = Field(
+        default=False,
+        description="Enable runtime admin and replay endpoints for v3",
+    )
     v4_canary_enabled: bool = Field(
         default=False,
         description="Enable v4 canary rollout gate checks",
@@ -90,12 +97,27 @@ class Settings(BaseSettings):
     server_port: int = Field(default=8000, description="Server port")
     debug: bool = Field(default=False, description="Debug mode for development")
     log_level: str = Field(default="INFO", description="Log level")
+    cors_allow_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        description="Explicit CORS allowlist for browser clients",
+    )
+    cors_allow_credentials: bool = Field(
+        default=False,
+        description="Whether browsers may send credentials on CORS requests",
+    )
 
     # Timeouts (seconds)
     llm_timeout: int = Field(default=30, description="LLM request timeout")
     amap_timeout: int = Field(default=5, description="Amap API timeout")
     # Weather timeout removed - using Open-Meteo with built-in timeout
     ncbi_timeout: int = Field(default=10, description="NCBI API timeout")
+    llm_extractor_model: str = Field(default="qwen-plus", description="Extractor model name")
+    llm_vision_model: str = Field(default="qwen-vl-plus", description="Vision model name")
+    llm_verifier_model: str = Field(default="qwen-plus", description="Safety verifier model name")
+    llm_triage_model: str = Field(default="qwen-plus", description="Triage model name")
 
     # Constraints
     max_text_length: int = Field(default=2000, description="Max text input length")
@@ -118,6 +140,22 @@ class Settings(BaseSettings):
         if v.upper() not in valid_levels:
             raise ValueError(f"Log level must be one of {valid_levels}")
         return v.upper()
+
+    @field_validator("cors_allow_origins", mode="before")
+    @classmethod
+    def parse_cors_allow_origins(cls, value: Any) -> list[str]:
+        """Accept either a JSON/list value or a comma-separated env string."""
+        if value is None:
+            return [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ]
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split(",")]
+            return [part for part in parts if part]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        raise TypeError("CORS_ALLOW_ORIGINS must be a list or comma-separated string")
 
     @field_validator("v4_gate_max_red_flag_miss_rate")
     @classmethod

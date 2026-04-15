@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from typing import Any
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
@@ -25,8 +25,8 @@ class LegacyTriageCapability:
             # Lazy import avoids requiring legacy chain dependencies at module import time.
             from src.chains.triage_chain import invoke_chain
 
-            self._invoker = cast(LegacyInvoker, invoke_chain)
-        return cast(LegacyInvoker, self._invoker)
+            self._invoker = invoke_chain
+        return self._invoker
 
     async def plan(self, context: ExecutionContext) -> dict[str, JSONValue]:
         _ = context

@@ -10,20 +10,36 @@ from src.services.llm_service import LLMService, get_llm_service
 class TestLLMService:
     """Test LLM service operations."""
 
-    async def test_setup_models_uses_grok_multimodal_model(self):
-        """All model slots should use the configured grok multimodal model."""
+    async def test_setup_models_uses_qwen_defaults_from_settings(self, monkeypatch):
+        """Each model slot should use the configured default model for its role."""
         with patch('src.services.llm_service.ChatOpenAI') as mock_chat:
             mock_chat.return_value = AsyncMock()
+            monkeypatch.setattr(
+                "src.services.llm_service.settings",
+                type(
+                    "SettingsStub",
+                    (),
+                    {
+                        "qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "qwen_api_key": "test-key",
+                        "llm_timeout": 30,
+                        "llm_extractor_model": "qwen-plus",
+                        "llm_vision_model": "qwen-vl-plus",
+                        "llm_verifier_model": "qwen-plus",
+                        "llm_triage_model": "qwen-plus",
+                    },
+                )(),
+            )
 
             LLMService()
 
             models = [call.kwargs["model"] for call in mock_chat.call_args_list]
 
             assert models == [
-                "grok-4-1-fast-reasoning",
-                "grok-4-1-fast-reasoning",
-                "grok-4-1-fast-reasoning",
-                "grok-4-1-fast-reasoning",
+                "qwen-plus",
+                "qwen-vl-plus",
+                "qwen-plus",
+                "qwen-plus",
             ]
 
     async def test_extract_symptoms_success(self):
