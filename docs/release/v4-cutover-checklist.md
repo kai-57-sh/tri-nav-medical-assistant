@@ -1,0 +1,91 @@
+# TriNav v4 Cutover Checklist
+
+> 目标：在不破坏 v3 协议契约的前提下，完成基于 v3 稳定主路径的 canary 放量与全量回归验收。
+
+## 1. 灰度前配置检查
+
+- [ ] 部署平台配置项已生效：
+
+```ini
+V3_RUNTIME_ENABLED=true
+V3_TASK_COORDINATOR_ENABLED=true
+V3_LEGACY_FALLBACK_ENABLED=true
+V4_CANARY_ENABLED=true
+```
+
+- [ ] 环境变量与配置项映射已确认：
+
+```ini
+V3_RUNTIME_ENABLED=true
+V3_TASK_COORDINATOR_ENABLED=true
+V3_LEGACY_FALLBACK_ENABLED=true
+V3_SHADOW_COMPARE_ENABLED=false
+V4_CANARY_ENABLED=true
+V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
+V4_GATE_MAX_P95_MS=6000
+```
+
+- [ ] `/assistant/v3/invoke`、`/assistant/v3/stream`、`/assistant/v3/runtime/doctor` 路由健康检查通过。
+- [ ] `docs/release/v3-cutover-runbook.md` 已由值班工程师过目。
+- [ ] 已准备 v3 回滚开关（可在一个发布窗口内恢复到 v3 稳定路径）。
+
+## 2. 全量回归
+
+执行命令：
+
+```bash
+bash scripts/release/run_cutover_checks.sh http://127.0.0.1:8000 tests/fixtures/release/canary_ok.json
+```
+
+补充说明：
+
+```bash
+pytest -q tests/unit/test_server_v2.py tests/unit/test_server_v2_stream.py tests/unit/test_server_v3.py tests/unit/test_server_v3_stream.py tests/unit/test_server_v3_runtime_admin.py tests/unit/test_v3 tests/integration/test_shadow_compare.py tests/integration/test_shadow_compare_v3.py tests/evals/test_golden_cases.py
+```
+
+验收标准：
+
+- [x] 所有测试通过。
+- [x] 无新增 flaky 测试。
+- [ ] `/tmp/trinav_runtime_doctor.json` 已生成并人工检查 `release` 块。
+
+## 3. 代码质量门禁
+
+执行命令：
+
+```bash
+ruff check src tests
+mypy src
+```
+
+验收标准：
+
+- [x] `ruff` 无错误。
+- [x] `mypy` 无错误。
+
+## 3.1 当前执行证据（2026-04-03）
+
+- [x] `mypy src` -> `Success: no issues found in 116 source files`
+- [x] `QWEN_API_KEY=test-key pytest -q tests/unit/test_services/test_llm_service.py tests/unit/test_nodes/test_session_loader.py tests/unit/test_nodes/test_red_flag_detector.py tests/unit/test_services/test_redis_service.py tests/unit/test_models/test_symptom_schema.py tests/unit/test_models/test_triage_assessment.py tests/unit/test_models/test_red_flag_rule.py tests/unit/test_models/test_navigation_result.py tests/unit/test_config/test_settings_v2.py tests/unit/test_v3/test_capabilities_v3.py tests/unit/test_v3/test_real_capabilities.py tests/unit/test_v3/test_redis_event_store.py tests/unit/test_platform/test_runtime_kernel.py tests/unit/test_server_v3.py tests/unit/test_server_v3_stream.py tests/unit/test_server_v3_runtime_admin.py tests/integration/test_shadow_compare.py tests/integration/test_shadow_compare_v3.py` -> `228 passed`
+- [x] `uvx ruff check src tests` -> `All checks passed`（存在 pyproject 顶层 lint 配置迁移 warning，不影响结果）
+
+## 4. 灰度放量建议
+
+- [ ] 按比例放量：1% -> 5% -> 20% -> 50% -> 100%。
+- [ ] 每阶段检查 `red_flag_miss_rate` 与 p95 指标。
+- [ ] 每阶段抽样调用 `/assistant/v3/runtime/doctor`，确认发布门禁配置未漂移。
+- [ ] 任一阶段若 `red_flag_miss_rate > 0.01`，立即停止放量并回滚。
+
+## 5. 发布后巡检
+
+- [ ] 抽样检查 v3 SSE 事件序列仍为 `status -> final -> [DONE]`。
+- [ ] 错误场景仍保持 stream HTTP 200 + final payload `status=error`。
+- [ ] runtime replay 与诊断接口可读取最新会话事件。
+
+## 6. 回滚触发条件
+
+满足任一项立即回滚：
+
+- [ ] 医疗安全相关告警显著上升。
+- [ ] `red_flag_miss_rate` 连续两个观测窗口超过 `0.01`。
+- [ ] 核心接口错误率或时延超过 SLO 且无法在窗口内恢复。
