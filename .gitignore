@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -73,6 +73,9 @@ dmypy.json
 # Distribution
 *.whl
 *.tar.gz
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
 
 # Docker
 *.pid
@@ -97,3 +100,13 @@ TriNav/CLAUDE.md
 TriNav/AGENTS.md
 TriNav/E2E_TEST_SUMMARY.md
 TriNav/IMPLEMENTATION_STATUS.md
+
+AGENTS.md
+IMPLEMENTATION_STATUS.md
+plan.md
+spec-user.md
+requirements-dev.txt
+docs/release/*
+!docs/release/v3-cutover-runbook.md
+!docs/release/v4-cutover-checklist.md
+docs/superpowers/

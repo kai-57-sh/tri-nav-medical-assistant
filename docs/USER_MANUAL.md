@@ -130,7 +130,7 @@ source .venv/bin/activate
 
 # 3. 安装依赖
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
+pip install pytest pytest-asyncio pytest-mock pytest-cov black ruff mypy
 
 # 4. 配置环境变量（最小配置）
 cat > .env << EOF
@@ -1228,7 +1228,7 @@ source .venv/bin/activate
 
 # 安装依赖
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
+pip install pytest pytest-asyncio pytest-mock pytest-cov black ruff mypy
 
 # 配置开发环境变量
 cat > .env << EOF
@@ -1688,7 +1688,7 @@ groups:
 
 - **GitHub Issues**: [项目地址]
 - **文档**: `docs/` 目录
-- **技术计划**: `specs/001-medical-triage-nav/`
+- **API 参考**: `docs/API_REFERENCE.md`
 
 ### 14.4 版本历史
 

@@ -31,20 +31,55 @@ async def test_consultation_capability_returns_status_payload() -> None:
     assert result.success is True
     assert result.payload["status"] == "ok"
     assert "summary" in result.payload
+    assert result.state_patch["consultation"]["summary"] == result.payload["summary"]
+    assert isinstance(result.state_patch["consultation"]["symptom_schema"], dict)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("capability", "name", "signal_key", "expected_status"),
+    ("capability", "name", "signal_key", "expected_status", "state_section", "state_keys"),
     [
-        (TriageCapability(), "triage", "triage_level", "ok"),
-        (EvidenceCapability(), "evidence", "evidence_signal", "ok"),
-        (NavigationCapability(), "navigation", "navigation_signal", "ok"),
-        (ResponseCapability(), "response", "response_signal", "final"),
+        (
+            TriageCapability(),
+            "triage",
+            "triage_level",
+            "ok",
+            "triage",
+            [
+                "triage_level",
+                "triage_reason",
+                "recommended_departments",
+                "possible_causes",
+                "self_care_tips",
+                "red_flags",
+            ],
+        ),
+        (
+            EvidenceCapability(),
+            "evidence",
+            "evidence_signal",
+            "ok",
+            "evidence",
+            ["ncbi_query", "evidence_selected"],
+        ),
+        (
+            NavigationCapability(),
+            "navigation",
+            "navigation_signal",
+            "ok",
+            "navigation",
+            ["navigation_result", "weather_alert"],
+        ),
+        (ResponseCapability(), "response", "response_signal", "final", "", []),
     ],
 )
 async def test_v3_capability_stub_payloads_keep_medical_signals(
-    capability: object, name: str, signal_key: str, expected_status: str
+    capability: object,
+    name: str,
+    signal_key: str,
+    expected_status: str,
+    state_section: str,
+    state_keys: list[str],
 ) -> None:
     context = _build_context()
 
@@ -55,6 +90,12 @@ async def test_v3_capability_stub_payloads_keep_medical_signals(
     assert result.success is True
     assert result.payload["status"] == expected_status
     assert signal_key in result.payload
+    if state_section:
+        assert state_section in result.state_patch
+        for key in state_keys:
+            assert key in result.state_patch[state_section]
+    else:
+        assert result.state_patch == {}
 
 
 @pytest.mark.asyncio

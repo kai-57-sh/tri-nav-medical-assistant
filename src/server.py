@@ -1,28 +1,46 @@
-"""LangServe server for TriNav.
+"""Server entry point for TriNav.
 
-This module provides the FastAPI/LangServe entry point for the TriNav API.
-Exposes the triage workflow at POST /assistant/invoke.
+This module provides the FastAPI entry point for the TriNav API.
+Exposes the assistant compatibility surface at POST /assistant/invoke.
 """
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, cast
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from langserve import add_routes
+from pydantic import BaseModel
 
-from .chains.triage_chain import chain
 from .config.settings import get_settings
 from .utils.logging_config import get_logger, setup_logging
-from .utils.metrics import external_service_health
+from .utils.metrics import external_service_health, get_content_type, get_metrics
 
 # Get settings
 settings = get_settings()
 log_file = os.getenv("TRINAV_LOG_FILE", "logs/trinav.log").strip() or None
 setup_logging(settings.log_level, log_file=log_file)
 logger = get_logger(__name__)
+
+
+class DependencyHealth(BaseModel):
+    """Readiness state for a single operational dependency."""
+
+    healthy: bool
+
+
+class ReadinessDependencies(BaseModel):
+    """Readiness state grouped by dependency name."""
+
+    redis: DependencyHealth
+    llm: DependencyHealth
+
+
+class ReadinessResponse(BaseModel):
+    """Structured readiness response published in OpenAPI."""
+
+    status: str
+    dependencies: ReadinessDependencies
 
 
 @asynccontextmanager
@@ -72,29 +90,22 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=settings.cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# Add LangServe routes
-add_routes(
-    app,
-    cast(Any, chain),
-    path="/assistant",
-    input_type=dict,
-    output_type=dict,
-)
-
 try:
+    from .interfaces.api.assistant_compat import router as assistant_compat_router
     from .interfaces.api.assistant_v2 import router as assistant_v2_router
     from .interfaces.api.assistant_v3 import router as assistant_v3_router
     from .interfaces.api.runtime_admin_v3 import router as runtime_admin_v3_router
     from .interfaces.api.shadow_compare import router as shadow_compare_router
     from .interfaces.api.shadow_compare_v3 import router as shadow_compare_v3_router
 
+    app.include_router(assistant_compat_router)
     app.include_router(assistant_v2_router)
     app.include_router(assistant_v3_router)
     app.include_router(runtime_admin_v3_router)
@@ -117,6 +128,60 @@ async def health_check() -> dict[str, str]:
         "status": "healthy" if redis_healthy else "degraded",
         "redis": "healthy" if redis_healthy else "unhealthy",
     }
+
+
+async def _get_dependency_readiness() -> dict[str, dict[str, bool]]:
+    """Collect readiness state for operational dependencies."""
+    from .services.llm_service import get_llm_service
+    from .services.redis_service import get_redis_service
+
+    dependencies = {
+        "redis": {"healthy": False},
+        "llm": {"healthy": False},
+    }
+
+    try:
+        redis = await get_redis_service()
+        dependencies["redis"]["healthy"] = bool(redis and redis.is_healthy)
+    except Exception:
+        logger.warning("Redis readiness check failed", exc_info=True)
+
+    try:
+        llm = get_llm_service()
+        dependencies["llm"]["healthy"] = bool(llm and llm.is_healthy)
+    except Exception:
+        logger.warning("LLM readiness check failed", exc_info=True)
+
+    return dependencies
+
+
+@app.get(
+    "/health/ready",
+    response_model=ReadinessResponse,
+    responses={503: {"model": ReadinessResponse, "description": "Dependencies degraded"}},
+)
+async def readiness_check(response: Response) -> ReadinessResponse:
+    """Readiness endpoint for orchestration probes."""
+    dependencies = await _get_dependency_readiness()
+    ready = all(dependency["healthy"] for dependency in dependencies.values())
+    response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return ReadinessResponse(
+        status="ready" if ready else "degraded",
+        dependencies=ReadinessDependencies(
+            redis=DependencyHealth(**dependencies["redis"]),
+            llm=DependencyHealth(**dependencies["llm"]),
+        ),
+    )
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Expose Prometheus metrics for scraping."""
+    return Response(
+        content=get_metrics(),
+        headers={"Content-Type": get_content_type()},
+    )
 
 
 @app.get("/")

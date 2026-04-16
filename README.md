@@ -2,7 +2,7 @@
 
 **Status**: ✅ Production Ready
 
-A LangChain-based medical triage system that helps users understand symptom urgency and navigate to appropriate care. Built with LangGraph 18-node workflow, LangServe deployment, and integrated external services (Amap, Weather, NCBI).
+A LangChain-based medical triage system that helps users understand symptom urgency and navigate to appropriate care. The public `POST /assistant/invoke` envelope remains stable, but the service now defaults internally to the v3 runtime baseline, with the legacy LangGraph path retained for fallback and shadow comparison. Integrated external services include Amap navigation, Open-Meteo weather, and NCBI evidence retrieval.
 
 ---
 
@@ -17,19 +17,22 @@ A LangChain-based medical triage system that helps users understand symptom urge
 
 ```bash
 # Clone repository
-cd /AII-wuqi/AII_home/fq_775/TriNav
+cd TriNav
 
 # Create virtual environment
 python3.11 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# Install runtime dependencies
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
+
+# Install local QA tooling when you need tests, lint, typing, or notebooks
+pip install pytest pytest-asyncio pytest-mock pytest-cov black ruff mypy ipython jupyter
 
 # Copy environment template
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with the required API keys
+# No weather-specific env vars are required; weather uses Open-Meteo
 ```
 
 ### Development Setup
@@ -38,6 +41,9 @@ cp .env.example .env
 # Start Redis (local or Docker)
 redis-server
 # or: docker run --name trinav-redis -p 6379:6379 redis:7-alpine
+
+# Optional: start the full local stack with the checked-in container assets
+docker compose up --build
 
 # Run tests
 pytest
@@ -57,6 +63,8 @@ npm run dev
 ### Logs
 
 - Default log file: `logs/trinav.log` (override with `TRINAV_LOG_FILE`)
+- Runtime admin routes are disabled by default; enable them explicitly with `V3_RUNTIME_ADMIN_ENABLED=true` only in trusted environments.
+- Container health checks should target `GET /health/ready`; `GET /health` is liveness-only.
 
 ---
 
@@ -74,8 +82,6 @@ TriNav/
 │   └── config/           # Settings and versioned rules
 ├── tests/                # Unit, integration, contract tests
 ├── docs/                 # Architecture, workflow, safety docs
-├── specs/                # Feature specifications
-│   └── 001-medical-triage-nav/
 └── requirements.txt      # Python dependencies
 ```
 
@@ -84,24 +90,24 @@ TriNav/
 ## Implementation Status
 
 ✅ **Complete**:
-- 18-node LangGraph workflow and LangServe API
+- 18-node LangGraph workflow and FastAPI compat API surface
+- `/assistant/invoke` compat envelope backed by the v3 runtime baseline
+- Legacy LangGraph execution retained for fallback/shadow validation, not as the default path
 - External services: Redis, Qwen LLM, Amap navigation, Open-Meteo weather, NCBI evidence
 - Frontend UI (Vite + React)
 - Structured logging and metrics
-
-See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for details.
 
 ---
 
 ## Architecture
 
 **Technology Stack**:
-- LangChain + LangGraph 1.0.5+ (18-node stateful workflow)
-- LangServe (API deployment)
+- LangChain + LangGraph 1.0.5+ (legacy workflow fallback and shadow path)
+- FastAPI + compat envelope at `/assistant/invoke`, defaulting internally to the v3 runtime
 - Python 3.11+ (async/await)
 - Redis 5.0+ (session storage, 60min TTL)
 - Pydantic v2 (data validation)
-- Qwen models (LLM via OpenAI-compatible API)
+- Qwen models via DashScope (`qwen-plus` for text, `qwen-vl-plus` for vision by default)
 
 **18-Node Workflow**:
 1. Input Validator → 2. Session Load → 3. Image Quality Gate → 4. Vision Extract
@@ -138,23 +144,54 @@ See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for details.
 curl -X POST http://localhost:8000/assistant/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "session_id": "550e8400-e29b-41d4-a716-446655440000",
-    "text": "手臂出现红疹，有点痒，持续2天"
+    "input": {
+      "session_id": "550e8400-e29b-41d4-a716-446655440000",
+      "text": "手臂出现红疹，有点痒，持续2天"
+    }
   }'
 ```
 
 **Response** (excerpt):
 ```json
 {
-  "status": "final",
-  "triage_level": "ROUTINE",
-  "recommended_departments": ["皮肤科"],
-  "possible_causes": [
-    "过敏相关皮疹（疑似）",
-    "接触性皮炎（疑似）"
-  ],
-  "red_flags": ["如果出现呼吸困难/脸唇肿胀，请立刻急诊"],
-  "disclaimer": "本建议仅供参考，不替代专业医疗诊断"
+  "output": {
+    "status": "final",
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "trace_id": "trace-routine-1",
+    "response": "根据您描述的手臂红疹症状，建议预约皮肤科门诊进一步评估。",
+    "safety": {
+      "risk_level": "low",
+      "matched_rules": []
+    },
+    "runtime_events": [
+      {
+        "event_type": "runtime_finished",
+        "data": {
+          "path": "v3_task_coordinator",
+          "success": true
+        }
+      }
+    ],
+    "provenance": {
+      "source": "v3_medical_pipeline",
+      "capability_version": "v3"
+    },
+    "trace": {
+      "request_id": "req-routine-1",
+      "path": "v3_task_coordinator"
+    },
+    "triage_level": "ROUTINE",
+    "recommended_departments": ["皮肤科"],
+    "possible_causes": [
+      "过敏相关皮疹（疑似）",
+      "接触性皮炎（疑似）"
+    ],
+    "red_flags": ["如果出现呼吸困难/脸唇肿胀，请立刻急诊"],
+    "disclaimer": "本建议仅供参考，不替代专业医疗诊断。"
+  },
+  "metadata": {
+    "runtime_mode": "v3"
+  }
 }
 ```
 
@@ -164,18 +201,19 @@ curl -X POST http://localhost:8000/assistant/invoke \
 curl -X POST http://localhost:8000/assistant/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "session_id": "550e8400-e29b-41d4-a716-446655440002",
-    "text": "手臂出现红疹，有点痒，持续2天",
-    "gps_lat": 39.9042,
-    "gps_lng": 116.4074
+    "input": {
+      "session_id": "550e8400-e29b-41d4-a716-446655440002",
+      "text": "手臂出现红疹，有点痒，持续2天",
+      "gps_lat": 39.9042,
+      "gps_lng": 116.4074
+    }
   }'
 ```
 
-**Response includes**:
-- 3 hospital recommendations (3A prioritized)
-- Route plan to top hospital
-- Weather alert (if available)
-> Note: navigation uses Amap and primarily covers mainland China. Non-China coordinates may return no hospitals.
+**Notes**:
+- Public `POST /assistant/invoke` accepts `gps_lat` / `gps_lng` and keeps the same compat envelope.
+- Location input can influence hospital search and route planning inside the runtime when Amap integrations are available.
+- The public compat response remains triage-focused and does not currently expose a standalone `navigation` object.
 
 ---
 
@@ -227,22 +265,18 @@ mypy src/
 
 ## Documentation
 
-- [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) - Detailed implementation status
-- [specs/001-medical-triage-nav/spec.md](./specs/001-medical-triage-nav/spec.md) - Feature specification
-- [specs/001-medical-triage-nav/plan.md](./specs/001-medical-triage-nav/plan.md) - Technical plan
-- [specs/001-medical-triage-nav/tasks.md](./specs/001-medical-triage-nav/tasks.md) - Implementation tasks
-- [specs/001-medical-triage-nav/data-model.md](./specs/001-medical-triage-nav/data-model.md) - Data models
-- [specs/001-medical-triage-nav/quickstart.md](./specs/001-medical-triage-nav/quickstart.md) - Developer guide
+- [docs/USER_MANUAL.md](./docs/USER_MANUAL.md) - User setup and operating guide
+- [docs/API_REFERENCE.md](./docs/API_REFERENCE.md) - API endpoints and contract details
+- [docs/DEVELOPER_GUIDE.md](./docs/DEVELOPER_GUIDE.md) - Local development workflow
 
 ---
 
 ## Contributing
 
-This project follows the SpecKit development workflow:
-1. Feature specification (`spec.md`)
-2. Implementation planning (`/speckit.plan`)
-3. Task breakdown (`/speckit.tasks`)
-4. Implementation (`/speckit.implement`)
+Before opening a change:
+1. Add or update tests for behavior changes
+2. Run backend checks (`pytest`, `mypy`, `ruff`)
+3. Run frontend checks (`npm run build`, `npm run lint`) when UI code changes
 
 ---
 
@@ -255,6 +289,5 @@ This project follows the SpecKit development workflow:
 ## Support
 
 For issues or questions:
-- Review [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for current progress
-- Check `docs/SAFETY.md` for safety-related concerns (when created)
-- Review technical plan in `specs/001-medical-triage-nav/plan.md`
+- Review [docs/USER_MANUAL.md](./docs/USER_MANUAL.md) for setup and usage guidance
+- Review [docs/API_REFERENCE.md](./docs/API_REFERENCE.md) for request and response details

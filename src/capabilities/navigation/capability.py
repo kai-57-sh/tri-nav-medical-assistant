@@ -113,6 +113,8 @@ class NavigationCapability:
 
         navigation_result = weather_state.get("navigation_result")
         weather_alert = weather_state.get("weather_alert")
+        navigation_result_patch = navigation_result if isinstance(navigation_result, dict) else None
+        weather_alert_patch = weather_alert if isinstance(weather_alert, dict) else None
 
         return CapabilityResult(
             name=self.name,
@@ -123,6 +125,12 @@ class NavigationCapability:
                 "destination_type": "clinical_guidance",
                 "navigation_result": navigation_result,
                 "weather_alert": weather_alert,
+            },
+            state_patch={
+                "navigation": {
+                    "navigation_result": navigation_result_patch,
+                    "weather_alert": weather_alert_patch,
+                }
             },
             provenance={
                 "source": _SOURCE,

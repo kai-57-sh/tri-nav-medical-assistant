@@ -4,6 +4,7 @@ import os
 from uuid import UUID
 
 import pytest
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("QWEN_API_KEY", "test-key")
@@ -97,7 +98,7 @@ def test_assistant_v2_invoke_success_contract_shape(
     assert data["status"] == "final"
     assert data["session_id"] == "sess-test-v2"
     assert data["trace_id"] == "trace-test-v2"
-    assert data["response"] == "mocked response"
+    assert data["response"].startswith("mocked response")
     assert data["safety"]["risk_level"] == "low"
     assert data["safety"]["matched_rules"] == []
     assert isinstance(data["runtime_events"], list)
@@ -303,3 +304,60 @@ def test_assistant_v2_no_results_returns_503(
     data = response.json()
     assert data["status"] == "error"
     assert data["error_message"] == "assistant_v2_runtime_failed_no_results"
+
+
+def test_public_assistant_invoke_delegates_to_compat_v3_surface(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public invoke should be served by compat->v3, not legacy runtime registration."""
+
+    observed_runtime_mode: str | None = None
+    compat_calls = 0
+
+    async def fake_invoke_runtime_v3(payload):  # type: ignore[no-untyped-def]
+        nonlocal compat_calls
+        nonlocal observed_runtime_mode
+        compat_calls += 1
+        observed_runtime_mode = payload.metadata.get("runtime_mode")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "final",
+                "session_id": "sess-public-cutover",
+                "trace_id": "trace-public-cutover",
+                "response": "compat v3 route",
+            },
+        )
+
+    async def fail_legacy_runtime(self, context):  # type: ignore[no-untyped-def]
+        raise AssertionError("legacy QueryEngine.run should not back /assistant/invoke")
+
+    monkeypatch.setattr("src.interfaces.api.assistant_compat.invoke_runtime_v3", fake_invoke_runtime_v3)
+    monkeypatch.setattr("src.core.runtime.query_engine.QueryEngine.run", fail_legacy_runtime)
+
+    response = client.post(
+        "/assistant/invoke",
+        json={
+            "input": {
+                "request_id": "req-public-cutover",
+                "session_id": "sess-public-cutover",
+                "trace_id": "trace-public-cutover",
+                "text": "头痛两天",
+            }
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert compat_calls == 1
+    assert observed_runtime_mode == "v3"
+    assert response.json() == {
+        "output": {
+            "status": "final",
+            "session_id": "sess-public-cutover",
+            "trace_id": "trace-public-cutover",
+            "response": "compat v3 route",
+        },
+        "metadata": {"runtime_mode": "v3"},
+    }

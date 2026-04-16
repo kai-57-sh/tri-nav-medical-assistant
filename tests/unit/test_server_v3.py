@@ -1,5 +1,6 @@
 """Tests for assistant v3 invoke route."""
 
+import json
 import os
 from types import SimpleNamespace
 from uuid import UUID
@@ -11,14 +12,28 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
-from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload
+from src.interfaces.api.assistant_v2 import (
+    AssistantV2InvokePayload,
+    get_runtime_session_state,
+)
 from src.interfaces.api.assistant_v3 import invoke_assistant_v3
+from src.interfaces.api.runtime_v3 import invoke_runtime_v3
 from src.server import app
 
 
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit v3 route tests assume the runtime gate is enabled unless overridden."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
 
 
 def _mock_runtime_run(
@@ -60,20 +75,22 @@ def test_assistant_v3_invoke_success_contract_shape(
 ) -> None:
     """V3 invoke should expose v2-parity schema and success semantics."""
 
-    _mock_runtime_run(
-        monkeypatch,
-        result=CapabilityResult(
-            name="legacy_triage",
-            success=True,
-            payload={
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=200,
+            content={
                 "status": "final",
                 "session_id": "sess-test-v3",
+                "trace_id": "trace-test-v3",
                 "response": "mocked response",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "legacy_graph"},
+                "trace": {"request_id": "req-test-v3"},
             },
-            provenance={"source": "legacy_graph"},
-            errors=[],
-        ),
-    )
+        )
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
 
     response = client.post(
         "/assistant/v3/invoke",
@@ -115,20 +132,23 @@ def test_assistant_v3_invoke_error_status_maps_to_503(
 ) -> None:
     """V3 invoke should keep v2 parity: normalized error status returns 503."""
 
-    _mock_runtime_run(
-        monkeypatch,
-        result=CapabilityResult(
-            name="legacy_triage",
-            success=True,
-            payload={
-                "status": "not_allowed",
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
                 "session_id": "sess-test-v3",
+                "trace_id": "11111111-1111-1111-1111-111111111111",
                 "response": "mocked response",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "legacy_graph"},
+                "trace": {"request_id": "req-test-v3"},
+                "error_message": "assistant_v3_task_runtime_failed",
             },
-            provenance={"source": "legacy_graph"},
-            errors=[],
-        ),
-    )
+        )
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
 
     response = client.post(
         "/assistant/v3/invoke",
@@ -146,6 +166,790 @@ def test_assistant_v3_invoke_error_status_maps_to_503(
     assert "error_message" in data
     assert isinstance(data["trace_id"], str)
     UUID(data["trace_id"])
+
+
+def test_assistant_v3_invoke_returns_503_when_runtime_flag_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit v3 invoke should reject execution when the v3 runtime flag is disabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=False, v3_legacy_fallback_enabled=True),
+    )
+
+    async def fail_primary(_payload: AssistantV2InvokePayload) -> JSONResponse:
+        raise AssertionError("primary v3 path should not execute when runtime is disabled")
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fail_primary)
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-disabled",
+            "session_id": "sess-v3-disabled",
+            "trace_id": "trace-v3-disabled",
+            "text": "持续胸痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["status"] == "error"
+    assert data["error_message"] == "assistant_v3_runtime_disabled"
+    assert data["trace"]["error_stage"] == "runtime_gate"
+
+
+def test_public_assistant_invoke_matches_v3_default_route_contract(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public compat invoke should expose the same default v3 result semantics."""
+
+    shared_v3_body = {
+        "status": "need_more_info",
+        "session_id": "sess-cutover-v3",
+        "trace_id": "trace-cutover-v3",
+        "response": "请补充持续时间",
+        "safety": {"risk_level": "low", "matched_rules": []},
+        "runtime_events": [{"event_type": "runtime_finished"}],
+        "provenance": {"source": "assistant_v3"},
+        "trace": {"request_id": "req-cutover-v3", "path": "v3_task_coordinator"},
+    }
+    observed_payloads: list[AssistantV2InvokePayload] = []
+    request_payload = {
+        "request_id": "req-cutover-v3",
+        "session_id": "sess-cutover-v3",
+        "trace_id": "trace-cutover-v3",
+        "text": "咳嗽三天",
+        "metadata": {
+            "runtime_mode": "legacy",
+            "client_channel": "web",
+            "correlation_hint": "parity-check",
+        },
+    }
+
+    async def fake_shared_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
+        observed_payloads.append(payload)
+        return JSONResponse(
+            status_code=200,
+            content=dict(shared_v3_body),
+        )
+
+    monkeypatch.setattr("src.interfaces.api.assistant_compat.invoke_runtime_v3", fake_shared_invoke)
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_runtime_v3", fake_shared_invoke)
+
+    compat_response = client.post(
+        "/assistant/invoke",
+        json={"input": request_payload},
+        headers={"Content-Type": "application/json"},
+    )
+    v3_response = client.post(
+        "/assistant/v3/invoke",
+        json=request_payload,
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert compat_response.status_code == 200
+    assert v3_response.status_code == 200
+    compat_body = compat_response.json()
+    v3_body = v3_response.json()
+    assert compat_body["output"] == v3_body
+    assert compat_body["metadata"]["runtime_mode"] == "v3"
+    assert len(observed_payloads) == 2
+    assert observed_payloads[0].model_dump() == observed_payloads[1].model_dump()
+    assert observed_payloads[0].metadata == {
+        "runtime_mode": "v3",
+        "client_channel": "web",
+        "correlation_hint": "parity-check",
+    }
+
+
+@pytest.mark.asyncio
+async def test_assistant_v3_invoke_delegates_to_runtime_v3(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V3 invoke should inject runtime_mode and delegate to runtime_v3."""
+
+    observed_payload: AssistantV2InvokePayload | None = None
+    calls = 0
+    delegated_response = JSONResponse({"status": "final"})
+
+    async def fake_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
+        nonlocal calls
+        nonlocal observed_payload
+        calls += 1
+        observed_payload = payload
+        return delegated_response
+
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_runtime_v3", fake_invoke)
+
+    original_payload = AssistantV2InvokePayload(
+        request_id="req-adapter-v3-invoke",
+        session_id="sess-adapter-v3-invoke",
+        trace_id="trace-adapter-v3-invoke",
+        text="头晕",
+        metadata={"runtime_mode": "legacy", "foo": "bar"},
+    )
+
+    response = await invoke_assistant_v3(original_payload)
+
+    assert calls == 1
+    assert observed_payload is not None
+    assert observed_payload is not original_payload
+    assert observed_payload.metadata["runtime_mode"] == "v3"
+    assert observed_payload.metadata["foo"] == "bar"
+    assert original_payload.metadata["runtime_mode"] == "legacy"
+    assert original_payload.metadata["foo"] == "bar"
+    assert response is delegated_response
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_uses_legacy_fallback_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runtime v3 should preserve the v3 envelope when legacy fallback is used."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-1",
+        session_id="sess-v3-fallback-1",
+        trace_id="trace-v3-fallback-1",
+        text="头痛发热",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-1",
+        "response": "legacy fallback response",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    assert isinstance(response, JSONResponse)
+    data = json.loads(response.body)
+    assert data["status"] == "final"
+    assert data["session_id"] == "sess-v3-fallback-1"
+    assert data["trace_id"] == "trace-v3-fallback-1"
+    assert data["response"] == "legacy fallback response"
+    assert data["safety"] == {"risk_level": "low", "matched_rules": []}
+    assert isinstance(data["runtime_events"], list)
+    assert data["provenance"]["source"] == "legacy_graph"
+    assert data["provenance"]["fallback"] == "v3_legacy"
+    assert data["trace"]["path"] == "legacy_fallback"
+    assert data["trace"]["request_id"] == "req-v3-fallback-1"
+    assert data["trace"]["primary_error_type"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_falls_back_when_primary_returns_structured_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Structured primary error responses should still trigger fallback when enabled."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-from-response-1",
+        session_id="sess-v3-fallback-from-response-1",
+        trace_id="trace-v3-fallback-from-response-1",
+        text="头痛发热",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-from-response-1",
+        "response": "legacy fallback response",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "session_id": "sess-v3-fallback-from-response-1",
+                "trace_id": "trace-v3-fallback-from-response-1",
+                "response": "",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "assistant_v3"},
+                "trace": {"error_type": "PrimaryReturnedError"},
+                "error_message": "primary returned structured error",
+            },
+        )
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    data = json.loads(response.body)
+    assert data["status"] == "final"
+    assert data["session_id"] == "sess-v3-fallback-from-response-1"
+    assert data["response"] == "legacy fallback response"
+    assert data["trace"]["path"] == "legacy_fallback"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_structured_primary_error_fallback_runs_once_when_legacy_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Structured-primary-error fallback should call legacy once and preserve primary details."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-from-response-raise-1",
+        session_id="sess-v3-fallback-from-response-raise-1",
+        trace_id="trace-v3-fallback-from-response-raise-1",
+        text="头痛发热",
+    )
+    fallback_calls = 0
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "session_id": "sess-v3-fallback-from-response-raise-1",
+                "trace_id": "trace-v3-fallback-from-response-raise-1",
+                "response": "",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "assistant_v3"},
+                "trace": {"error_type": "PrimaryReturnedError"},
+                "error_message": "primary returned structured error",
+            },
+        )
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        raise ValueError("legacy fallback failed")
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert fallback_calls == 1
+    assert response.status_code == 503
+    data = json.loads(response.body)
+    assert data["status"] == "error"
+    assert data["trace"]["error_type"] == "ValueError"
+    assert data["trace"]["error_message"] == "legacy fallback failed"
+    assert data["trace"]["primary_error_type"] == "PrimaryReturnedError"
+    assert data["trace"]["primary_error_message"] == "primary returned structured error"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_legacy_fallback_applies_safe_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy fallback should return rewritten safe text, not the raw unsafe text."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-safe-1",
+        session_id="sess-v3-fallback-safe-1",
+        trace_id="trace-v3-fallback-safe-1",
+        text="胸痛发热",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-safe-1",
+        "response": "你已经确诊肺炎，先别去医院。",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    data = json.loads(response.body)
+    assert "确诊" not in data["response"]
+    assert "别去医院" not in data["response"]
+    assert "疑似" in data["response"]
+    assert "建议尽快就医" in data["response"]
+    assert data["safety"]["risk_level"] == "high"
+    assert "rewrite.confirmed_diagnosis" in data["safety"]["matched_rules"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_successful_legacy_fallback_preserves_structured_clinical_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful legacy fallback should expose key structured clinical fields when present."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-structured-1",
+        session_id="sess-v3-fallback-structured-1",
+        trace_id="trace-v3-fallback-structured-1",
+        text="持续咳嗽两周",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-structured-1",
+        "response": "legacy fallback response",
+        "triage_level": "ROUTINE",
+        "recommended_departments": ["全科", "内科"],
+        "possible_causes": ["上呼吸道感染（疑似）"],
+        "red_flags": ["若呼吸困难请立即急诊"],
+        "disclaimer": "本建议仅供参考，不替代专业医疗诊断。",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, object]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    data = json.loads(response.body)
+    assert data["triage_level"] == "ROUTINE"
+    assert data["recommended_departments"] == ["全科", "内科"]
+    assert data["possible_causes"] == ["上呼吸道感染（疑似）"]
+    assert data["red_flags"] == ["若呼吸困难请立即急诊"]
+    assert data["disclaimer"] == "本建议仅供参考，不替代专业医疗诊断。"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_returns_structured_error_when_fallback_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runtime v3 should return structured v3 error response when fallback is disabled."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-disabled-1",
+        session_id="sess-v3-fallback-disabled-1",
+        trace_id="trace-v3-fallback-disabled-1",
+        text="头痛发热",
+    )
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=False),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 503
+    data = json.loads(response.body)
+    assert data["status"] == "error"
+    assert data["session_id"] == "sess-v3-fallback-disabled-1"
+    assert data["trace_id"] == "trace-v3-fallback-disabled-1"
+    assert data["response"] == ""
+    assert data["safety"] == {"risk_level": "low", "matched_rules": []}
+    assert isinstance(data["runtime_events"], list)
+    assert data["provenance"]["source"] == "assistant_v2"
+    assert data["trace"]["error_stage"] == "task_orchestration"
+    assert data["error_message"] == "assistant_v3_task_runtime_failed"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_returns_structured_error_when_primary_and_fallback_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both primary and legacy fallback failures should return structured v3 error."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-double-fail-1",
+        session_id="sess-v3-fallback-double-fail-1",
+        trace_id="trace-v3-fallback-double-fail-1",
+        text="头痛发热",
+    )
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        raise ValueError("legacy fallback failed")
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 503
+    data = json.loads(response.body)
+    assert data["status"] == "error"
+    assert data["session_id"] == "sess-v3-fallback-double-fail-1"
+    assert data["trace_id"] == "trace-v3-fallback-double-fail-1"
+    assert data["response"] == ""
+    assert data["safety"] == {"risk_level": "low", "matched_rules": []}
+    assert isinstance(data["runtime_events"], list)
+    assert data["trace"]["error_stage"] == "task_orchestration"
+    assert data["trace"]["error_type"] == "ValueError"
+    assert data["error_message"] == "assistant_v3_task_runtime_failed"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_legacy_fallback_logical_error_maps_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy fallback logical error should preserve envelope and map to 503."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-error-1",
+        session_id="sess-v3-fallback-error-1",
+        trace_id="trace-v3-fallback-error-1",
+        text="头痛发热",
+    )
+    legacy_payload = {
+        "status": "not_allowed",
+        "session_id": "sess-v3-fallback-error-1",
+        "response": "legacy fallback response",
+        "error_message": "legacy path rejected request",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 503
+    data = json.loads(response.body)
+    assert data["status"] == "error"
+    assert data["session_id"] == "sess-v3-fallback-error-1"
+    assert data["trace_id"] == "trace-v3-fallback-error-1"
+    assert data["response"] == "legacy fallback response"
+    assert data["error_message"] == "legacy path rejected request"
+    assert data["provenance"]["fallback"] == "v3_legacy"
+    assert data["trace"]["path"] == "legacy_fallback"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_successful_legacy_fallback_persists_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Successful legacy fallback should persist snapshot and events to shared stores."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-persist-1",
+        session_id="sess-v3-fallback-persist-1",
+        trace_id="trace-v3-fallback-persist-1",
+        text="持续低热三天",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "sess-v3-fallback-persist-1",
+        "response": "legacy fallback persisted response",
+        "triage_level": "ROUTINE",
+        "recommended_departments": ["全科", "内科"],
+        "possible_causes": ["上呼吸道感染（疑似）"],
+        "red_flags": ["若呼吸困难请立即急诊"],
+        "disclaimer": "本建议仅供参考，不替代专业医疗诊断。",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    state = await get_runtime_session_state("sess-v3-fallback-persist-1")
+    snapshot = state["snapshot"]
+    assert snapshot is not None
+    assert snapshot["status"] == "final"
+    assert snapshot["trace_id"] == "trace-v3-fallback-persist-1"
+    assert snapshot["response"] == "legacy fallback persisted response"
+    assert snapshot["trace"]["path"] == "legacy_fallback"
+    assert snapshot["triage_level"] == "ROUTINE"
+    assert snapshot["recommended_departments"] == ["全科", "内科"]
+    assert snapshot["possible_causes"] == ["上呼吸道感染（疑似）"]
+    assert snapshot["red_flags"] == ["若呼吸困难请立即急诊"]
+    assert snapshot["disclaimer"] == "本建议仅供参考，不替代专业医疗诊断。"
+    assert isinstance(state["runtime_events"], list)
+    assert state["runtime_events"][0]["event_type"] == "runtime_fallback_triggered"
+    assert state["runtime_events"][-1]["event_type"] == "runtime_finished"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_legacy_fallback_blank_session_id_uses_resolved_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Blank legacy session ids should fall back to the resolved request session id."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-blank-session-1",
+        session_id="sess-v3-fallback-blank-session-1",
+        trace_id="trace-v3-fallback-blank-session-1",
+        text="持续低热三天",
+    )
+    legacy_payload = {
+        "status": "final",
+        "session_id": "   ",
+        "response": "legacy fallback response",
+    }
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_legacy(_: AssistantV2InvokePayload) -> dict[str, str]:
+        return legacy_payload
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_legacy_fallback", fake_legacy)
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 200
+    data = json.loads(response.body)
+    assert data["session_id"] == "sess-v3-fallback-blank-session-1"
+    state = await get_runtime_session_state("sess-v3-fallback-blank-session-1")
+    snapshot = state["snapshot"]
+    assert snapshot is not None
+    assert snapshot["session_id"] == "sess-v3-fallback-blank-session-1"
+    assert state["runtime_events"][0]["session_id"] == "sess-v3-fallback-blank-session-1"
+    assert state["runtime_events"][-1]["session_id"] == "sess-v3-fallback-blank-session-1"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_legacy_fallback_non_uuid_public_session_uses_stable_internal_uuid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy fallback should map non-UUID public session ids to a stable internal UUID only."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-fallback-non-uuid-1",
+        session_id="sess-public-non-uuid-1",
+        trace_id="trace-v3-fallback-non-uuid-1",
+        text="持续低热三天",
+    )
+    seen_legacy_session_ids: list[str] = []
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_invoke_chain(
+        session_id: str,
+        text: str,
+        image_base64: str | None = None,
+        gps_lat: float | None = None,
+        gps_lng: float | None = None,
+        config: object | None = None,
+    ) -> dict[str, object]:
+        _ = (text, image_base64, gps_lat, gps_lng, config)
+        seen_legacy_session_ids.append(session_id)
+        UUID(session_id)
+        return {
+            "status": "final",
+            "session_id": session_id,
+            "response": "legacy fallback response",
+        }
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.chains.triage_chain.invoke_chain", fake_invoke_chain)
+
+    first_response = await invoke_runtime_v3(payload)
+    second_response = await invoke_runtime_v3(payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert len(seen_legacy_session_ids) == 2
+    assert seen_legacy_session_ids[0] == seen_legacy_session_ids[1]
+    assert seen_legacy_session_ids[0] != "sess-public-non-uuid-1"
+
+    first_data = json.loads(first_response.body)
+    second_data = json.loads(second_response.body)
+    assert first_data["session_id"] == "sess-public-non-uuid-1"
+    assert second_data["session_id"] == "sess-public-non-uuid-1"
+
+    state = await get_runtime_session_state("sess-public-non-uuid-1")
+    snapshot = state["snapshot"]
+    assert snapshot is not None
+    assert snapshot["session_id"] == "sess-public-non-uuid-1"
+    assert snapshot["trace_id"] == "trace-v3-fallback-non-uuid-1"
+    assert state["runtime_events"][0]["session_id"] == "sess-public-non-uuid-1"
+    assert state["runtime_events"][-1]["session_id"] == "sess-public-non-uuid-1"
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_legacy_session_ids_do_not_alias_uuid_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Canonical UUID text must not alias with alternate raw spellings of the same UUID."""
+
+    canonical_session_id = "12345678-1234-5678-9abc-def012345678"
+    uppercase_session_id = canonical_session_id.upper()
+    seen_legacy_session_ids: list[str] = []
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_legacy_fallback_enabled=True),
+    )
+
+    async def fake_primary(_: AssistantV2InvokePayload) -> JSONResponse:
+        raise RuntimeError("primary v3 failed")
+
+    async def fake_invoke_chain(
+        session_id: str,
+        text: str,
+        image_base64: str | None = None,
+        gps_lat: float | None = None,
+        gps_lng: float | None = None,
+        config: object | None = None,
+    ) -> dict[str, object]:
+        _ = (text, image_base64, gps_lat, gps_lng, config)
+        seen_legacy_session_ids.append(session_id)
+        UUID(session_id)
+        return {
+            "status": "final",
+            "session_id": session_id,
+            "response": "legacy fallback response",
+        }
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
+    monkeypatch.setattr("src.chains.triage_chain.invoke_chain", fake_invoke_chain)
+
+    canonical_response = await invoke_runtime_v3(
+        AssistantV2InvokePayload(
+            request_id="req-v3-fallback-canonical-1",
+            session_id=canonical_session_id,
+            trace_id="trace-v3-fallback-canonical-1",
+            text="持续低热三天",
+        )
+    )
+    uppercase_response = await invoke_runtime_v3(
+        AssistantV2InvokePayload(
+            request_id="req-v3-fallback-uppercase-1",
+            session_id=uppercase_session_id,
+            trace_id="trace-v3-fallback-uppercase-1",
+            text="持续低热三天",
+        )
+    )
+
+    assert canonical_response.status_code == 200
+    assert uppercase_response.status_code == 200
+    assert len(seen_legacy_session_ids) == 2
+    assert seen_legacy_session_ids[0] == canonical_session_id
+    assert seen_legacy_session_ids[1] != uppercase_session_id
+    assert seen_legacy_session_ids[1] != seen_legacy_session_ids[0]
+
+    canonical_data = json.loads(canonical_response.body)
+    uppercase_data = json.loads(uppercase_response.body)
+    assert canonical_data["session_id"] == canonical_session_id
+    assert uppercase_data["session_id"] == uppercase_session_id
+
+
+@pytest.mark.asyncio
+async def test_runtime_v3_returns_structured_error_when_settings_resolution_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings resolution failures should return a structured v3 503 envelope."""
+
+    payload = AssistantV2InvokePayload(
+        request_id="req-v3-settings-error-1",
+        session_id="sess-v3-settings-error-1",
+        trace_id="trace-v3-settings-error-1",
+        text="头痛发热",
+    )
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: (_ for _ in ()).throw(RuntimeError("settings unavailable")),
+    )
+
+    response = await invoke_runtime_v3(payload)
+
+    assert response.status_code == 503
+    data = json.loads(response.body)
+    assert data["status"] == "error"
+    assert data["session_id"] == "sess-v3-settings-error-1"
+    assert data["trace_id"] == "trace-v3-settings-error-1"
+    assert data["response"] == ""
+    assert data["safety"] == {"risk_level": "low", "matched_rules": []}
+    assert isinstance(data["runtime_events"], list)
+    assert data["provenance"]["source"] == "assistant_v2"
+    assert data["trace"]["error_stage"] == "settings"
+    assert data["error_message"] == "assistant_v3_task_runtime_failed"
 
 
 def test_assistant_v3_invoke_uses_task_coordinator_when_enabled(
@@ -364,40 +1168,235 @@ def test_assistant_v3_task_coordinator_propagates_triage_metadata_to_followup_ta
     assert "triage=SELF_CARE" in data["response"]
 
 
-@pytest.mark.asyncio
-async def test_assistant_v3_sets_runtime_mode_and_calls_v2(
+def test_assistant_v3_task_coordinator_response_fields_prefer_turn_state(
+    client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """V3 invoke should only inject runtime_mode and delegate to v2 invoke."""
+    """V3 response body fields should be sourced from canonical turn_state when available."""
 
-    observed_payload: AssistantV2InvokePayload | None = None
-    calls = 0
-    delegated_response = JSONResponse({"status": "final", "response": "delegated"})
-
-    async def fake_invoke(payload: AssistantV2InvokePayload) -> JSONResponse:
-        nonlocal calls
-        nonlocal observed_payload
-        calls += 1
-        observed_payload = payload
-        return delegated_response
-
-    monkeypatch.setattr("src.interfaces.api.assistant_v3.invoke_assistant_v2", fake_invoke)
-
-    original_payload = AssistantV2InvokePayload(
-        request_id="req-adapter-v3",
-        session_id="sess-adapter-v3",
-        trace_id="trace-adapter-v3",
-        text="咳嗽",
-        metadata={"runtime_mode": "legacy", "foo": "bar"},
+    monkeypatch.setattr(
+        "src.interfaces.api.assistant_v2.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_builtin_plugins_enabled=False,
+            v3_plugin_trace_enabled=True,
+            v3_plugin_medical_footer_enabled=True,
+        ),
     )
 
-    response = await invoke_assistant_v3(original_payload)
+    async def fake_consultation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="consultation",
+            success=True,
+            payload={"status": "ok", "summary": "mock summary"},
+            provenance={"source": "test"},
+            errors=[],
+        )
 
-    assert calls == 1
-    assert observed_payload is not None
-    assert observed_payload is not original_payload
-    assert observed_payload.metadata["runtime_mode"] == "v3"
-    assert observed_payload.metadata["foo"] == "bar"
-    assert original_payload.metadata["runtime_mode"] == "legacy"
-    assert original_payload.metadata["foo"] == "bar"
-    assert response is delegated_response
+    async def fake_triage_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="triage",
+            success=True,
+            payload={
+                "status": "ok",
+                "triage_level": "ROUTINE",
+                "triage_reason": "payload says routine",
+                "recommended_departments": ["全科"],
+                "possible_causes": ["普通不适"],
+                "red_flags": ["payload red flag"],
+            },
+            provenance={"source": "test"},
+            errors=[],
+            state_patch={
+                "triage": {
+                    "triage_level": "EMERGENCY",
+                    "triage_reason": "state says emergency",
+                    "recommended_departments": ["急诊"],
+                    "possible_causes": ["蛛网膜下腔出血（疑似）"],
+                    "red_flags": ["突发剧烈头痛伴意识改变"],
+                }
+            },
+        )
+
+    async def fake_evidence_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="evidence",
+            success=True,
+            payload={"status": "ok", "evidence_signal": "evidence_pending", "evidence_selected": []},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_navigation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="navigation",
+            success=True,
+            payload={"status": "ok", "navigation_signal": "routing_unavailable"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_response_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="response",
+            success=True,
+            payload={"status": "final", "response": "state-aware response"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "src.capabilities.consultation.capability.ConsultationCapability.run",
+        fake_consultation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.triage.capability.TriageCapability.run",
+        fake_triage_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.evidence.capability.EvidenceCapability.run",
+        fake_evidence_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.navigation.capability.NavigationCapability.run",
+        fake_navigation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.response.capability.ResponseCapability.run",
+        fake_response_run,
+    )
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-turn-state-1",
+            "session_id": "sess-v3-turn-state-1",
+            "trace_id": "trace-v3-turn-state-1",
+            "text": "轻微头痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["triage_level"] == "EMERGENCY"
+    assert data["recommended_departments"] == ["急诊"]
+    assert data["possible_causes"] == ["蛛网膜下腔出血（疑似）"]
+    assert data["red_flags"] == ["突发剧烈头痛伴意识改变"]
+
+
+def test_assistant_v3_task_coordinator_uses_payload_triage_when_canonical_state_is_empty(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When canonical triage state is empty, compatibility fallback should use triage payload."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.assistant_v2.get_settings",
+        lambda: SimpleNamespace(
+            v3_task_coordinator_enabled=True,
+            v3_builtin_plugins_enabled=False,
+            v3_plugin_trace_enabled=True,
+            v3_plugin_medical_footer_enabled=True,
+        ),
+    )
+
+    async def fake_consultation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="consultation",
+            success=True,
+            payload={"status": "ok", "summary": "mock summary"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_triage_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="triage",
+            success=True,
+            payload={
+                "status": "ok",
+                "triage_level": "URGENT",
+                "triage_reason": "payload says urgent",
+                "recommended_departments": ["急诊", "内科"],
+                "red_flags": ["若出现胸痛请立即急诊"],
+            },
+            provenance={"source": "test"},
+            errors=[],
+            state_patch={"triage": {}},
+        )
+
+    async def fake_evidence_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="evidence",
+            success=True,
+            payload={"status": "ok", "evidence_signal": "evidence_pending", "evidence_selected": []},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_navigation_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="navigation",
+            success=True,
+            payload={"status": "ok", "navigation_signal": "routing_unavailable"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    async def fake_response_run(self, context, plan=None):  # type: ignore[no-untyped-def]
+        _ = (self, context, plan)
+        return CapabilityResult(
+            name="response",
+            success=True,
+            payload={"status": "final", "response": "compatibility fallback response"},
+            provenance={"source": "test"},
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "src.capabilities.consultation.capability.ConsultationCapability.run",
+        fake_consultation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.triage.capability.TriageCapability.run",
+        fake_triage_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.evidence.capability.EvidenceCapability.run",
+        fake_evidence_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.navigation.capability.NavigationCapability.run",
+        fake_navigation_run,
+    )
+    monkeypatch.setattr(
+        "src.capabilities.response.capability.ResponseCapability.run",
+        fake_response_run,
+    )
+
+    response = client.post(
+        "/assistant/v3/invoke",
+        json={
+            "request_id": "req-v3-compat-fallback-1",
+            "session_id": "sess-v3-compat-fallback-1",
+            "trace_id": "trace-v3-compat-fallback-1",
+            "text": "持续高热并加重",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["triage_level"] == "URGENT"
+    assert data["recommended_departments"] == ["急诊科", "内科"]
+    assert data["red_flags"] == ["症状存在加重风险，建议尽快线下就医。"]

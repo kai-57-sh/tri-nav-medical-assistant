@@ -3,18 +3,19 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
-from src.core.runtime.types import CapabilityResult
 from src.interfaces.api.assistant_v2 import AssistantV2InvokePayload
 from src.interfaces.api.assistant_v3 import stream_assistant_v3
 from src.server import app
+from tests.conftest import parse_sse_frames
 
 
 @pytest.fixture
@@ -22,66 +23,48 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def _mock_runtime_run(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    result: CapabilityResult,
-) -> None:
-    async def fake_run(self, context):  # type: ignore[no-untyped-def]
-        _ = self
-        _ = context
-        return [result]
+@pytest.fixture(autouse=True)
+def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit v3 stream tests assume the runtime gate is enabled unless overridden."""
 
-    def fake_dump(self):  # type: ignore[no-untyped-def]
-        _ = self
-        return [
-            {
-                "event_type": "runtime_finished",
-                "request_id": "req-test-v3",
-                "session_id": "sess-test-v3",
-                "data": {"capabilities_executed": 1, "success": result.success},
-            }
-        ]
-
-    monkeypatch.setattr("src.core.runtime.query_engine.QueryEngine.run", fake_run)
-    monkeypatch.setattr("src.core.runtime.event_bus.EventBus.dump", fake_dump)
-
-
-def _parse_sse_frames(body: str) -> list[dict[str, Any]]:
-    assert body.endswith("\n\n")
-    raw_frames = [frame for frame in body.split("\n\n") if frame]
-    parsed: list[dict[str, Any]] = []
-    for frame in raw_frames:
-        lines = frame.split("\n")
-        entry: dict[str, Any] = {"raw": frame, "lines": lines}
-        for line in lines:
-            if line.startswith("event: "):
-                entry["event"] = line.removeprefix("event: ")
-            if line.startswith("data: "):
-                entry["data"] = line.removeprefix("data: ")
-        parsed.append(entry)
-    return parsed
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
 
 
 def test_assistant_v3_stream_returns_ordered_sse_frames(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """V3 stream should keep v2 SSE order and final payload shape."""
+    """V3 stream should emit status/final/[DONE] SSE frames with correct payload shape."""
 
-    _mock_runtime_run(
-        monkeypatch,
-        result=CapabilityResult(
-            name="legacy_triage",
-            success=True,
-            payload={
+    async def fake_invoke_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
+        _ = payload
+        return JSONResponse(
+            status_code=200,
+            content={
                 "status": "final",
                 "session_id": "sess-test-v3",
+                "trace_id": "trace-test-v3",
                 "response": "mocked response",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [
+                    {
+                        "event_type": "runtime_finished",
+                        "request_id": "req-test-v3",
+                        "session_id": "sess-test-v3",
+                        "data": {"capabilities_executed": 1, "success": True},
+                    }
+                ],
+                "provenance": {"source": "v3_primary"},
+                "trace": {"request_id": "req-test-v3"},
             },
-            provenance={"source": "legacy_graph"},
-            errors=[],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.invoke_runtime_v3",
+        fake_invoke_v3,
     )
 
     response = client.post(
@@ -99,7 +82,7 @@ def test_assistant_v3_stream_returns_ordered_sse_frames(
     assert "text/event-stream" in response.headers.get("content-type", "")
     assert response.text.count("data: [DONE]") == 1
 
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"
@@ -137,11 +120,11 @@ def test_assistant_v3_stream_error_final_still_uses_http_200(
 ) -> None:
     """V3 stream should keep 200 transport status with final error payload."""
 
-    async def fake_invoke(payload):  # type: ignore[no-untyped-def]
+    async def fake_invoke_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
         _ = payload
         raise RuntimeError("stream boom")
 
-    monkeypatch.setattr("src.interfaces.api.assistant_v2.invoke_assistant_v2", fake_invoke)
+    monkeypatch.setattr("src.interfaces.api.runtime_v3.invoke_runtime_v3", fake_invoke_v3)
 
     response = client.post(
         "/assistant/v3/stream",
@@ -155,7 +138,7 @@ def test_assistant_v3_stream_error_final_still_uses_http_200(
     )
 
     assert response.status_code == 200
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"
@@ -164,7 +147,49 @@ def test_assistant_v3_stream_error_final_still_uses_http_200(
 
     final_payload = json.loads(frames[1]["data"])
     assert final_payload["status"] == "error"
-    assert final_payload["error_message"] == "assistant_v2_stream_failed"
+    assert final_payload["error_message"] == "assistant_v3_stream_failed"
+
+
+def test_assistant_v3_stream_returns_final_error_when_runtime_flag_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit v3 stream should not execute the runtime when the v3 flag is disabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: type(
+            "SettingsStub",
+            (),
+            {"v3_runtime_enabled": False, "v3_legacy_fallback_enabled": True},
+        )(),
+    )
+
+    async def fail_invoke(payload):
+        _ = payload
+        raise AssertionError("stream path should not execute invoke_runtime_v3 when runtime is disabled")
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3.invoke_runtime_v3", fail_invoke)
+
+    response = client.post(
+        "/assistant/v3/stream",
+        json={
+            "request_id": "req-test-v3-disabled-stream",
+            "session_id": "sess-test-v3-disabled-stream",
+            "trace_id": "trace-test-v3-disabled-stream",
+            "text": "头痛两天",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    frames = parse_sse_frames(response.text)
+    assert len(frames) == 3
+    final_payload = json.loads(frames[1]["data"])
+    assert final_payload["status"] == "error"
+    assert final_payload["error_message"] == "assistant_v3_runtime_disabled"
+    assert final_payload["trace"]["error_stage"] == "runtime_gate"
+    assert frames[2]["data"] == "[DONE]"
 
 
 def test_assistant_v3_stream_contract_doc_mentions_http_200_error_parity() -> None:
@@ -177,10 +202,10 @@ def test_assistant_v3_stream_contract_doc_mentions_http_200_error_parity() -> No
 
 
 @pytest.mark.asyncio
-async def test_assistant_v3_stream_sets_runtime_mode_and_calls_v2(
+async def test_assistant_v3_stream_sets_runtime_mode_and_calls_runtime_v3(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """V3 stream should only inject runtime_mode and delegate to v2 stream."""
+    """V3 stream should only inject runtime_mode and delegate to runtime_v3."""
 
     observed_payload: AssistantV2InvokePayload | None = None
     calls = 0
@@ -198,7 +223,7 @@ async def test_assistant_v3_stream_sets_runtime_mode_and_calls_v2(
         observed_payload = payload
         return delegated_response
 
-    monkeypatch.setattr("src.interfaces.api.assistant_v3.stream_assistant_v2", fake_stream)
+    monkeypatch.setattr("src.interfaces.api.assistant_v3.stream_runtime_v3", fake_stream)
 
     original_payload = AssistantV2InvokePayload(
         request_id="req-adapter-v3-stream",
@@ -218,3 +243,227 @@ async def test_assistant_v3_stream_sets_runtime_mode_and_calls_v2(
     assert original_payload.metadata["runtime_mode"] == "legacy"
     assert original_payload.metadata["foo"] == "bar"
     assert response is delegated_response
+
+
+# ---------------------------------------------------------------------------
+# Unified stream semantics: stream_runtime_v3 delegates to invoke_runtime_v3
+# and converts the JSONResponse to SSE, sharing the same
+# primary / fallback / disabled logic instead of calling stream_assistant_v2.
+# ---------------------------------------------------------------------------
+
+
+def test_stream_primary_structured_error_converted_to_sse_final_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When invoke_runtime_v3 returns a structured error, stream should emit it as a final error SSE."""
+
+    error_body = JSONResponse(
+        status_code=503,
+        content={
+            "status": "error",
+            "session_id": "sess-stream-err",
+            "trace_id": "trace-stream-err",
+            "error_message": "assistant_v3_task_runtime_failed",
+            "trace": {
+                "request_id": "req-stream-err",
+                "error_stage": "task_orchestration",
+                "error_type": "RuntimeError",
+                "error_message": "coordinator crashed",
+            },
+        },
+    )
+
+    async def fake_invoke_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
+        _ = payload
+        return error_body
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.invoke_runtime_v3",
+        fake_invoke_v3,
+    )
+
+    response = client.post(
+        "/assistant/v3/stream",
+        json={
+            "request_id": "req-stream-err",
+            "session_id": "sess-stream-err",
+            "trace_id": "trace-stream-err",
+            "text": "头痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    frames = parse_sse_frames(response.text)
+    assert len(frames) == 3
+    assert frames[0]["event"] == "status"
+    assert frames[1]["event"] == "final"
+    assert frames[2]["data"] == "[DONE]"
+
+    final_payload = json.loads(frames[1]["data"])
+    assert final_payload["status"] == "error"
+    assert final_payload["error_message"] == "assistant_v3_task_runtime_failed"
+
+
+def test_stream_legacy_fallback_success_converted_to_sse_final(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When invoke_runtime_v3 returns legacy fallback result, stream should emit it as a final success SSE."""
+
+    fallback_body = JSONResponse(
+        status_code=200,
+        content={
+            "status": "final",
+            "session_id": "sess-stream-fallback",
+            "trace_id": "trace-stream-fallback",
+            "response": "legacy fallback response",
+            "safety": {"risk_level": "low", "matched_rules": []},
+            "runtime_events": [
+                {"event_type": "runtime_fallback_triggered", "session_id": "sess-stream-fallback"},
+            ],
+            "provenance": {"source": "legacy_graph", "fallback": "v3_legacy"},
+            "trace": {
+                "request_id": "req-stream-fallback",
+                "path": "legacy_fallback",
+                "primary_error_type": "RuntimeError",
+            },
+        },
+    )
+
+    async def fake_invoke_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
+        _ = payload
+        return fallback_body
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.invoke_runtime_v3",
+        fake_invoke_v3,
+    )
+
+    response = client.post(
+        "/assistant/v3/stream",
+        json={
+            "request_id": "req-stream-fallback",
+            "session_id": "sess-stream-fallback",
+            "trace_id": "trace-stream-fallback",
+            "text": "头痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    frames = parse_sse_frames(response.text)
+    assert len(frames) == 3
+    assert frames[0]["event"] == "status"
+    assert frames[1]["event"] == "final"
+    assert frames[2]["data"] == "[DONE]"
+
+    final_payload = json.loads(frames[1]["data"])
+    assert final_payload["status"] == "final"
+    assert final_payload["response"] == "legacy fallback response"
+    assert final_payload["provenance"]["source"] == "legacy_graph"
+
+
+def test_stream_does_not_call_stream_assistant_v2_when_runtime_enabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stream success path should use invoke_runtime_v3, NOT stream_assistant_v2."""
+
+    invoke_calls = 0
+
+    async def fake_invoke_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
+        nonlocal invoke_calls
+        invoke_calls += 1
+        _ = payload
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "final",
+                "session_id": "sess-no-v2",
+                "trace_id": "trace-no-v2",
+                "response": "direct v3",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": [],
+                "provenance": {"source": "v3_primary"},
+                "trace": {"request_id": "req-no-v2"},
+            },
+        )
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.invoke_runtime_v3",
+        fake_invoke_v3,
+    )
+
+    response = client.post(
+        "/assistant/v3/stream",
+        json={
+            "request_id": "req-no-v2",
+            "session_id": "sess-no-v2",
+            "trace_id": "trace-no-v2",
+            "text": "头痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert invoke_calls == 1
+    frames = parse_sse_frames(response.text)
+    final_payload = json.loads(frames[1]["data"])
+    assert final_payload["response"] == "direct v3"
+
+
+def test_stream_fallback_disabled_returns_error_when_primary_fails(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When primary fails and legacy fallback is disabled, stream should emit a final error SSE."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
+
+    error_body = JSONResponse(
+        status_code=503,
+        content={
+            "status": "error",
+            "session_id": "sess-no-fallback",
+            "trace_id": "trace-no-fallback",
+            "error_message": "assistant_v3_task_runtime_failed",
+            "trace": {
+                "request_id": "req-no-fallback",
+                "error_stage": "task_orchestration",
+                "error_type": "RuntimeError",
+                "error_message": "primary crashed, no fallback",
+            },
+        },
+    )
+
+    async def fake_invoke_v3(payload: AssistantV2InvokePayload) -> JSONResponse:
+        _ = payload
+        return error_body
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.invoke_runtime_v3",
+        fake_invoke_v3,
+    )
+
+    response = client.post(
+        "/assistant/v3/stream",
+        json={
+            "request_id": "req-no-fallback",
+            "session_id": "sess-no-fallback",
+            "trace_id": "trace-no-fallback",
+            "text": "头痛",
+        },
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    frames = parse_sse_frames(response.text)
+    assert len(frames) == 3
+    final_payload = json.loads(frames[1]["data"])
+    assert final_payload["status"] == "error"
+    assert final_payload["error_message"] == "assistant_v3_task_runtime_failed"

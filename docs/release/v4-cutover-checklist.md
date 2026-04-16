@@ -1,32 +1,43 @@
 # TriNav v4 Cutover Checklist
 
-> 目标：在不破坏 v3 协议契约的前提下，完成 v4 runtime 灰度放量与全量回归验收。
+> 目标：在不破坏 v3 协议契约的前提下，完成基于 v3 稳定主路径的 canary 放量与全量回归验收。
 
 ## 1. 灰度前配置检查
 
 - [ ] 部署平台配置项已生效：
 
 ```ini
-v4_runtime_enabled=true
-v4_canary_enabled=true
-v4_gate_max_red_flag_miss_rate=0.01
+V3_RUNTIME_ENABLED=true
+V3_TASK_COORDINATOR_ENABLED=true
+V3_LEGACY_FALLBACK_ENABLED=true
+V4_CANARY_ENABLED=true
 ```
 
 - [ ] 环境变量与配置项映射已确认：
 
 ```ini
-V4_RUNTIME_ENABLED=true
+V3_RUNTIME_ENABLED=true
+V3_TASK_COORDINATOR_ENABLED=true
+V3_LEGACY_FALLBACK_ENABLED=true
+V3_SHADOW_COMPARE_ENABLED=false
 V4_CANARY_ENABLED=true
 V4_GATE_MAX_RED_FLAG_MISS_RATE=0.01
 V4_GATE_MAX_P95_MS=6000
 ```
 
 - [ ] `/assistant/v3/invoke`、`/assistant/v3/stream`、`/assistant/v3/runtime/doctor` 路由健康检查通过。
+- [ ] `docs/release/v3-cutover-runbook.md` 已由值班工程师过目。
 - [ ] 已准备 v3 回滚开关（可在一个发布窗口内恢复到 v3 稳定路径）。
 
 ## 2. 全量回归
 
 执行命令：
+
+```bash
+bash scripts/release/run_cutover_checks.sh http://127.0.0.1:8000 tests/fixtures/release/canary_ok.json
+```
+
+补充说明：
 
 ```bash
 pytest -q tests/unit/test_server_v2.py tests/unit/test_server_v2_stream.py tests/unit/test_server_v3.py tests/unit/test_server_v3_stream.py tests/unit/test_server_v3_runtime_admin.py tests/unit/test_v3 tests/integration/test_shadow_compare.py tests/integration/test_shadow_compare_v3.py tests/evals/test_golden_cases.py
@@ -36,6 +47,7 @@ pytest -q tests/unit/test_server_v2.py tests/unit/test_server_v2_stream.py tests
 
 - [x] 所有测试通过。
 - [x] 无新增 flaky 测试。
+- [ ] `/tmp/trinav_runtime_doctor.json` 已生成并人工检查 `release` 块。
 
 ## 3. 代码质量门禁
 
@@ -61,6 +73,7 @@ mypy src
 
 - [ ] 按比例放量：1% -> 5% -> 20% -> 50% -> 100%。
 - [ ] 每阶段检查 `red_flag_miss_rate` 与 p95 指标。
+- [ ] 每阶段抽样调用 `/assistant/v3/runtime/doctor`，确认发布门禁配置未漂移。
 - [ ] 任一阶段若 `red_flag_miss_rate > 0.01`，立即停止放量并回滚。
 
 ## 5. 发布后巡检

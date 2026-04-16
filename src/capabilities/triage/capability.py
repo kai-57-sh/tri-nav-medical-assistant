@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
+from typing import Any, cast
 
 from src.core.runtime.execution_context import ExecutionContext
 from src.core.runtime.types import CapabilityResult, JSONValue
@@ -190,7 +190,49 @@ class TriageCapability:
 
         merged_state = await triage_merger({**red_flag_state, **classifier_state})
         triage_level_raw = merged_state.get("triage_level")
-        triage_level = triage_level_raw if isinstance(triage_level_raw, str) else "URGENT"
+        triage_level = (
+            triage_level_raw
+            if isinstance(triage_level_raw, str) and triage_level_raw in _TRIAGE_LEVELS
+            else "URGENT"
+        )
+        triage_reason_payload = merged_state.get("triage_reason", "")
+        recommended_departments_payload = merged_state.get("recommended_departments", [])
+        possible_causes_payload = merged_state.get("possible_causes", [])
+        self_care_tips_payload = merged_state.get("self_care_tips", [])
+        red_flags_payload = merged_state.get("red_flags", [])
+
+        triage_reason_state_patch = (
+            triage_reason_payload if isinstance(triage_reason_payload, str) else ""
+        )
+        recommended_departments_state_patch = (
+            [item for item in recommended_departments_payload if isinstance(item, str)]
+            if isinstance(recommended_departments_payload, list)
+            else []
+        )
+        possible_causes_state_patch = (
+            [item for item in possible_causes_payload if isinstance(item, str)]
+            if isinstance(possible_causes_payload, list)
+            else []
+        )
+        self_care_tips_state_patch = (
+            [item for item in self_care_tips_payload if isinstance(item, str)]
+            if isinstance(self_care_tips_payload, list)
+            else []
+        )
+        red_flags_state_patch = (
+            [item for item in red_flags_payload if isinstance(item, str)]
+            if isinstance(red_flags_payload, list)
+            else []
+        )
+
+        triage_state_patch: dict[str, JSONValue] = {
+            "triage_level": triage_level,
+            "triage_reason": triage_reason_state_patch,
+            "recommended_departments": cast(JSONValue, recommended_departments_state_patch),
+            "possible_causes": cast(JSONValue, possible_causes_state_patch),
+            "self_care_tips": cast(JSONValue, self_care_tips_state_patch),
+            "red_flags": cast(JSONValue, red_flags_state_patch),
+        }
 
         return CapabilityResult(
             name=self.name,
@@ -199,11 +241,14 @@ class TriageCapability:
                 "status": "ok",
                 "triage_level": triage_level,
                 "triage_signal": "triage_completed",
-                "triage_reason": merged_state.get("triage_reason", ""),
-                "recommended_departments": merged_state.get("recommended_departments", []),
-                "possible_causes": merged_state.get("possible_causes", []),
-                "self_care_tips": merged_state.get("self_care_tips", []),
-                "red_flags": merged_state.get("red_flags", []),
+                "triage_reason": triage_reason_payload,
+                "recommended_departments": recommended_departments_payload,
+                "possible_causes": possible_causes_payload,
+                "self_care_tips": self_care_tips_payload,
+                "red_flags": red_flags_payload,
+            },
+            state_patch={
+                "triage": triage_state_patch
             },
             provenance={
                 "source": _SOURCE,

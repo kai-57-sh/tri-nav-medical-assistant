@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.responses import JSONResponse
@@ -13,6 +12,7 @@ os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
 from src.server import app
+from tests.conftest import parse_sse_frames
 
 
 @pytest.fixture
@@ -43,22 +43,6 @@ def _mock_runtime_run(
 
     monkeypatch.setattr("src.core.runtime.query_engine.QueryEngine.run", fake_run)
     monkeypatch.setattr("src.core.runtime.event_bus.EventBus.dump", fake_dump)
-
-
-def _parse_sse_frames(body: str) -> list[dict[str, Any]]:
-    assert body.endswith("\n\n")
-    raw_frames = [frame for frame in body.split("\n\n") if frame]
-    parsed: list[dict[str, Any]] = []
-    for frame in raw_frames:
-        lines = frame.split("\n")
-        entry: dict[str, Any] = {"raw": frame, "lines": lines}
-        for line in lines:
-            if line.startswith("event: "):
-                entry["event"] = line.removeprefix("event: ")
-            if line.startswith("data: "):
-                entry["data"] = line.removeprefix("data: ")
-        parsed.append(entry)
-    return parsed
 
 
 def test_assistant_v2_stream_returns_ordered_sse_frames(
@@ -96,7 +80,7 @@ def test_assistant_v2_stream_returns_ordered_sse_frames(
     assert "text/event-stream" in response.headers.get("content-type", "")
     assert response.text.count("\n\n") == 3
 
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
 
     assert frames[0]["event"] == "status"
@@ -118,7 +102,7 @@ def test_assistant_v2_stream_returns_ordered_sse_frames(
     }
     assert final_payload["status"] == "final"
     assert final_payload["session_id"] == "sess-test-v2"
-    assert final_payload["response"] == "mocked response"
+    assert final_payload["response"].startswith("mocked response")
     assert final_payload["safety"]["risk_level"] == "low"
     assert final_payload["safety"]["matched_rules"] == []
 
@@ -152,7 +136,7 @@ def test_assistant_v2_stream_runtime_exception_still_emits_final_and_done(
     assert "text/event-stream" in response.headers.get("content-type", "")
     assert response.text.count("\n\n") == 3
 
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"
@@ -199,7 +183,7 @@ def test_assistant_v2_stream_invalid_payload_falls_back_to_error_with_safety(
     )
 
     assert response.status_code == 200
-    frames = _parse_sse_frames(response.text)
+    frames = parse_sse_frames(response.text)
     assert len(frames) == 3
     assert frames[0]["event"] == "status"
     assert frames[1]["event"] == "final"

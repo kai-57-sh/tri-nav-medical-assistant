@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("QWEN_API_KEY", "test-key")
 
 from src.core.runtime.types import CapabilityResult
+from src.interfaces.api.assistant_v2 import _persist_runtime_snapshot, _record_runtime_events
 from src.platform.state.replay_service import SessionNotResumableError, SessionReplayNotFoundError
 from src.server import app
 
@@ -18,6 +19,33 @@ from src.server import app
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def enable_v3_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Admin tests that exercise explicit v3 invoke assume the runtime gate is enabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_legacy_fallback_enabled=False),
+    )
+
+
+@pytest.fixture(autouse=True)
+def enable_runtime_admin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runtime admin endpoints are explicitly enabled in this test module unless overridden."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_settings",
+        lambda: SimpleNamespace(
+            v3_runtime_admin_enabled=True,
+            v3_runtime_enabled=True,
+            v3_shadow_compare_enabled=False,
+            v4_canary_enabled=False,
+            v4_gate_max_red_flag_miss_rate=0.01,
+            v4_gate_max_p95_ms=6000,
+        ),
+    )
 
 
 def _mock_runtime_run(
@@ -48,6 +76,33 @@ def _mock_runtime_run(
     monkeypatch.setattr("src.core.runtime.event_bus.EventBus.dump", fake_dump)
 
 
+def test_runtime_admin_endpoints_return_404_when_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admin endpoints should be hidden when the runtime admin flag is disabled."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_settings",
+        lambda: SimpleNamespace(v3_runtime_admin_enabled=False),
+    )
+
+    doctor = client.get("/assistant/v3/runtime/doctor")
+    replay = client.get("/assistant/v3/runtime/sessions/sess-disabled/replay")
+    plugins = client.get("/assistant/v3/runtime/plugins")
+    resume = client.post(
+        "/assistant/v3/runtime/sessions/sess-disabled/resume",
+        json={"text": "继续"},
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert doctor.status_code == 404
+    assert replay.status_code == 404
+    assert plugins.status_code == 404
+    assert resume.status_code == 404
+    assert doctor.json() == {"detail": "runtime_admin_disabled"}
+
+
 def test_runtime_doctor_v3_returns_flags_and_dependency_health(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -56,7 +111,14 @@ def test_runtime_doctor_v3_returns_flags_and_dependency_health(
 
     monkeypatch.setattr(
         "src.interfaces.api.runtime_admin_v3.get_settings",
-        lambda: SimpleNamespace(v3_runtime_enabled=True, v3_shadow_compare_enabled=False),
+        lambda: SimpleNamespace(
+            v3_runtime_admin_enabled=True,
+            v3_runtime_enabled=True,
+            v3_shadow_compare_enabled=False,
+            v4_canary_enabled=False,
+            v4_gate_max_red_flag_miss_rate=0.01,
+            v4_gate_max_p95_ms=6000,
+        ),
     )
 
     async def fake_get_redis_service() -> Any:
@@ -82,11 +144,61 @@ def test_runtime_doctor_v3_returns_flags_and_dependency_health(
     assert body["status"] == "ok"
     assert body["runtime"]["v3_runtime_enabled"] is True
     assert body["runtime"]["v3_shadow_compare_enabled"] is False
+    assert body["release"] == {
+        "v4_canary_enabled": False,
+        "max_red_flag_miss_rate": 0.01,
+        "max_p95_ms": 6000,
+    }
     assert body["dependencies"]["redis"]["healthy"] is True
     assert body["observability"] == {
         "sessions_with_events": 3,
         "total_runtime_events": 15,
         "sessions_with_snapshots": 2,
+    }
+
+
+def test_runtime_doctor_v3_returns_canary_gate_configuration(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Doctor endpoint should expose release gate settings for cutover checks."""
+
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_settings",
+        lambda: SimpleNamespace(
+            v3_runtime_admin_enabled=True,
+            v3_runtime_enabled=True,
+            v3_shadow_compare_enabled=False,
+            v4_canary_enabled=True,
+            v4_gate_max_red_flag_miss_rate=0.01,
+            v4_gate_max_p95_ms=6000,
+        ),
+    )
+
+    async def fake_get_redis_service() -> Any:
+        return SimpleNamespace(is_healthy=True)
+
+    monkeypatch.setattr(
+        "src.services.redis_service.get_redis_service",
+        fake_get_redis_service,
+    )
+    monkeypatch.setattr(
+        "src.interfaces.api.runtime_admin_v3.get_runtime_store_summary",
+        lambda: {
+            "sessions_with_events": 1,
+            "total_runtime_events": 2,
+            "sessions_with_snapshots": 1,
+        },
+    )
+
+    response = client.get("/assistant/v3/runtime/doctor")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["release"] == {
+        "v4_canary_enabled": True,
+        "max_red_flag_miss_rate": 0.01,
+        "max_p95_ms": 6000,
     }
 
 
@@ -126,20 +238,8 @@ def test_runtime_replay_v3_returns_snapshot_after_invoke(
 ) -> None:
     """Replay endpoint should return persisted invoke snapshot and events."""
 
-    _mock_runtime_run(
-        monkeypatch,
-        result=CapabilityResult(
-            name="legacy_triage",
-            success=True,
-            payload={
-                "status": "final",
-                "session_id": "sess-replay-v3",
-                "response": "mocked replay response",
-            },
-            provenance={"source": "legacy_graph"},
-            errors=[],
-        ),
-        runtime_events=[
+    async def fake_primary(_payload):  # type: ignore[no-untyped-def]
+        runtime_events = [
             {
                 "event_type": "runtime_started",
                 "request_id": "req-replay-v3",
@@ -152,8 +252,35 @@ def test_runtime_replay_v3_returns_snapshot_after_invoke(
                 "session_id": "sess-replay-v3",
                 "data": {"capabilities_executed": 1, "success": True},
             },
-        ],
-    )
+        ]
+        provenance = {"source": "legacy_graph"}
+        trace = {"request_id": "req-replay-v3", "path": "test_primary"}
+        await _record_runtime_events("sess-replay-v3", runtime_events)
+        await _persist_runtime_snapshot(
+            request_id="req-replay-v3",
+            session_id="sess-replay-v3",
+            trace_id="trace-replay-v3",
+            status="final",
+            response="mocked replay response",
+            runtime_events=runtime_events,
+            provenance=provenance,
+            trace=trace,
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "final",
+                "session_id": "sess-replay-v3",
+                "trace_id": "trace-replay-v3",
+                "response": "mocked replay response",
+                "safety": {"risk_level": "low", "matched_rules": []},
+                "runtime_events": runtime_events,
+                "provenance": provenance,
+                "trace": trace,
+            },
+        )
+
+    monkeypatch.setattr("src.interfaces.api.runtime_v3._invoke_primary_v3", fake_primary)
 
     invoke = client.post(
         "/assistant/v3/invoke",

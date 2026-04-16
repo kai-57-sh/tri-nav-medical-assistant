@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from src.core.runtime.medical_state import MedicalTurnState
 from src.core.runtime.types import JSONValue
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -19,3 +20,4 @@ class ExecutionContext(BaseModel):
     gps_lat: float | None = None
     gps_lng: float | None = None
     metadata: dict[str, JSONValue] = Field(default_factory=dict)
+    turn_state: MedicalTurnState = Field(default_factory=MedicalTurnState)
