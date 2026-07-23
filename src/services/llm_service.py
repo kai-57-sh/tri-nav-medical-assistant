@@ -36,6 +36,13 @@ class LLMService:
             "api_key": settings.qwen_api_key,
             "timeout": settings.llm_timeout,
         }
+        # Reasoning models (e.g. Zhipu GLM-5-turbo) spend many seconds on a hidden
+        # "thinking" phase, blowing past per-node timeouts. Must use extra_body (NOT
+        # model_kwargs): langchain_openai spreads model_kwargs as top-level kwargs into
+        # openai's create(), which rejects unknown 'thinking' with TypeError; extra_body
+        # merges it into the request JSON the provider actually receives.
+        if settings.llm_disable_thinking:
+            common_config["extra_body"] = {"thinking": {"type": "disabled"}}
 
         try:
             # Extraction model (low temp for consistency)

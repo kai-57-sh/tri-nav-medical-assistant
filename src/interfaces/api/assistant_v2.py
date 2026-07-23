@@ -522,6 +522,19 @@ async def _invoke_v3_task_coordinator(
     )
     body["disclaimer"] = "本建议仅供参考，不替代专业医疗诊断。"
 
+    # Surface plugin outputs from the canonical turn_state (the same source the
+    # response capability composes its text from): Amap navigation, Open-Meteo
+    # weather, NCBI evidence. Frontend keys: navigation / weather_alert /
+    # evidence_selected.
+    nav_state = task_context.turn_state.navigation
+    if isinstance(nav_state.navigation_result, dict) and nav_state.navigation_result:
+        body["navigation"] = nav_state.navigation_result
+    if isinstance(nav_state.weather_alert, dict) and nav_state.weather_alert:
+        body["weather_alert"] = nav_state.weather_alert
+    evidence_selected = task_context.turn_state.evidence.evidence_selected
+    if isinstance(evidence_selected, list) and evidence_selected:
+        body["evidence_selected"] = evidence_selected
+
     if primary.success and response_status in {"final", "need_more_info"}:
         await _persist_runtime_snapshot(
             request_id=request_id,

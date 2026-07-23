@@ -111,6 +111,10 @@ class Settings(BaseSettings):
 
     # Timeouts (seconds)
     llm_timeout: int = Field(default=30, description="LLM request timeout")
+    llm_disable_thinking: bool = Field(
+        default=False,
+        description="Disable reasoning-model 'thinking' phase (e.g. GLM-5-turbo) for speed",
+    )
     amap_timeout: int = Field(default=5, description="Amap API timeout")
     # Weather timeout removed - using Open-Meteo with built-in timeout
     ncbi_timeout: int = Field(default=10, description="NCBI API timeout")

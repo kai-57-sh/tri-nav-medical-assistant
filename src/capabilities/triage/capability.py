@@ -12,7 +12,7 @@ from src.utils.logging_config import get_logger
 
 _SOURCE = "v3_medical_pipeline"
 _SAFE_BUSY_MESSAGE = "服务繁忙，请尽快线下就医"
-_PROD_NODE_TIMEOUT_SECONDS = 3.0
+_PROD_NODE_TIMEOUT_SECONDS = float(os.getenv("TRINAV_NODE_TIMEOUT_SECONDS", "25.0"))
 _TEST_NODE_TIMEOUT_SECONDS = 0.35
 _TRIAGE_LEVELS = frozenset({"EMERGENCY", "URGENT", "ROUTINE", "SELF_CARE"})
 logger = get_logger(__name__)

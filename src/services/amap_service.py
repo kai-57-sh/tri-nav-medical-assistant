@@ -300,7 +300,7 @@ class AmapService:
             "extensions": "all"
         }
 
-        result = await self._make_request("driving/policy", params)
+        result = await self._make_request("direction/driving", params)
 
         if not result or "route" not in result:
             logger.warning("No route found or API failure")

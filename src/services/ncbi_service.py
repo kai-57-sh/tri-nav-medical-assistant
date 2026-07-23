@@ -101,7 +101,9 @@ class NCBIService:
         # Build search query with date filter
         current_year = datetime.now().year
         min_year = current_year - 10
-        date_filter = f"{min_year}:3000[dpcr]"  # Publication date filter
+        # [dp] = Date of Publication. NOTE: [dpcr] is NOT a valid PubMed field
+        # code and silently yields zero results for every query.
+        date_filter = f"{min_year}:3000[dp]"
 
         full_query = f"{query} AND {date_filter}"
 
@@ -110,7 +112,9 @@ class NCBIService:
             "term": full_query,
             "retmax": max_results,
             "sort": "relevance",
-            "filter": "hasabstract"  # Only include articles with abstracts
+            # NOTE: do NOT add filter=hasabstract — it is invalid for E-utilities
+            # and makes esearch return {'ERROR': 'Invalid filter key: hasabstract'}
+            # with an empty idlist on every query.
         }
 
         result = await self._make_request("esearch.fcgi", params)

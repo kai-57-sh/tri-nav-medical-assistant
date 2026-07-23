@@ -76,12 +76,8 @@ async def ncbi_query_builder(state: dict[str, Any]) -> dict[str, Any]:
     # Combine with AND operator
     if query_terms:
         ncbi_query = " AND ".join(query_terms)
-
-        # Add date filter for last 10 years (per FR-030)
-        from datetime import datetime
-        current_year = datetime.now().year
-        date_filter = f"{current_year - 10}:3000[dpcr]"
-        ncbi_query = f"{ncbi_query} AND {date_filter}"
+        # The last-10-years date filter ([dp]) is applied once at the PubMed API
+        # boundary by NCBIService.search_pubmed — not duplicated here.
 
         logger.info(
             f"NCBI query built: {ncbi_query}",
